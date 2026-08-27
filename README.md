@@ -1,11 +1,11 @@
-# HAUDIO 0.01 – Audio Routing for Two Computers
+# hAudio 0.01 – Audio Routing for Two Computers
 
 Date: 2026-08-27  
 Author: Peter Grunert  
 Website: <https://www.bk99.de>  
 License: GNU General Public License v3.0 or later (GPL-3.0-or-later)
 
-HAUDIO is a permanently running Raspberry Pi audio-routing system. It mixes
+hAudio is a permanently running Raspberry Pi audio-routing system. It mixes
 audio from PC1 and PC2 to a wireless headset and routes the headset microphone
 independently to PC1, PC2, both, or neither computer.
 
@@ -21,7 +21,7 @@ Headset microphone -> USB headset adapter -> PipeWire -> PC1 and/or PC2
 
 ## Optional hardware examples
 
-HAUDIO is designed to work with compatible USB audio adapters and 3.5 mm
+hAudio is designed to work with compatible USB audio adapters and 3.5 mm
 audio cables; the exact brands and models are not required. The following
 links are examples of hardware used for this type of setup:
 
@@ -89,7 +89,7 @@ The responsive web interface provides independent computer volume and mute
 controls, microphone routing, live level meters, recording management,
 hardware assignment, and a soundboard.
 
-![HAUDIO web interface](docs/images/WebInterface.png)
+![hAudio web interface](docs/images/WebInterface.png)
 
 The screenshot is an example deployment. Device names and assignments vary
 depending on the hardware connected to the Raspberry Pi.

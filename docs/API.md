@@ -1,4 +1,4 @@
-# HAUDIO HTTP API
+# hAudio HTTP API
 
 The control API is served by the same FastAPI process as the web interface.
 The default base URL is `http://<raspberry-pi-address>:8765`.

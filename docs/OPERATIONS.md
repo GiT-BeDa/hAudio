@@ -28,7 +28,7 @@ amixer -c2 sget Mic
 
 ## USB reconnection
 
-HAUDIO continuously checks PipeWire devices. If devices or HAUDIO loopbacks
+hAudio continuously checks PipeWire devices. If devices or hAudio loopbacks
 disappear, the graph is rebuilt. When devices return, USB cards are assigned
 again using their physical paths. The web interface shows missing devices as
 disconnected.

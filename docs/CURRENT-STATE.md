@@ -1,4 +1,4 @@
-# HAUDIO current system state
+# hAudio current system state
 
 Recorded on 2026-08-27 on the reference Raspberry Pi.
 
@@ -35,7 +35,7 @@ Audio sample rate:      48000 Hz
 ## USB changes
 
 The backend device monitor checks PipeWire devices regularly. Missing sources,
-sinks, or HAUDIO loopbacks cause the graph to be rebuilt. USB capture gain is
+sinks, or hAudio loopbacks cause the graph to be rebuilt. USB capture gain is
 reset to a safe level during recovery.
 
 ## Limitation

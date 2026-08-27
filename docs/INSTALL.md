@@ -1,4 +1,4 @@
-# Install or restore HAUDIO
+# Install or restore hAudio
 
 These commands assume Raspberry Pi OS/Debian, the haudio user, and a
 PipeWire PulseAudio-compatible interface.

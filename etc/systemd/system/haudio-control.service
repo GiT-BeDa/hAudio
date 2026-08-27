@@ -1,5 +1,5 @@
 [Unit]
-Description=HAUDIO control backend
+Description=hAudio control backend
 After=pipewire.service wireplumber.service network-online.target
 Wants=network-online.target
 [Service]

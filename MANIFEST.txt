@@ -1,4 +1,4 @@
-HAUDIO 0.01 backup – 2026-08-27
+hAudio 0.01 backup – 2026-08-27
 
 Included:
   LICENSE
