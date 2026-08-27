@@ -68,7 +68,9 @@ Headset microphone -> USB headset adapter -> PipeWire -> PC1 and/or PC2
 The web interface provides one combined recording containing headset output and
 headset microphone, stored as segmented Opus files under
 `/data/haudio/recordings/YYYY-MM-DD/`. Recordings can be started, stopped,
-downloaded, renamed, and deleted.
+played directly, downloaded, renamed, and deleted. Direct playback is sent only
+to the currently assigned headset and never to either computer's microphone
+route.
 
 MP3 files can be uploaded, validated, played, downloaded, renamed, and deleted.
 Playback uses a dedicated PipeWire mix bus and is sent to the headset and the

@@ -92,12 +92,19 @@ segmented Opus session.
 | `POST` | `/api/recording/session/stop` | Stop recording explicitly. |
 | `POST` | `/api/recording/start-all` | Compatibility alias for starting the session. |
 | `POST` | `/api/recording/stop-all` | Compatibility alias for stopping the session. |
+| `POST` | `/api/recordings/{path}/play` | Play an Opus recording directly on the assigned headset. |
+| `POST` | `/api/recordings/playback/stop` | Stop direct recording playback. |
 | `GET` | `/api/recordings/{path}` | Download an Opus file. |
 | `POST` | `/api/recordings/{path}/rename` | Rename with `{"name":"new-name.opus"}`. |
 | `DELETE` | `/api/recordings/{path}` | Delete a recording. |
 
-An active recording segment returns `409` when rename or deletion is
-requested. Stop recording first so no open file is accidentally lost.
+Recording playback uses the assigned headset sink directly. It is not routed
+through the soundboard bus and therefore cannot reach PC1 or PC2. Starting a
+different recording replaces the current playback.
+
+An active recording segment cannot be played, renamed, or deleted. A recording
+that is currently playing cannot be renamed or deleted. These requests return
+`409`; stop the relevant operation first.
 
 ## Live updates
 
@@ -112,6 +119,7 @@ Example:
 ```json
 {
   "pc1": {"connected": true, "volume": 70, "mute": false},
+  "recording": {"session": false, "playback": {"active": true, "path": "2026-08-28/session.opus", "name": "session.opus"}},
   "soundboard": {"playing": "alert.mp3", "active": true, "volume": 80},
   "levels": {"pc1": -18.2, "pc2": -60.0, "microphone": -24.1, "headset": -14.0},
   "system": {"pipewire": true, "graph_ready": true, "disk_free_gb": 42.1},

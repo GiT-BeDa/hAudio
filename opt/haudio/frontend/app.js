@@ -152,6 +152,18 @@ function applyStatus(status) {
   const recordingIndicator = byId('recording-indicator');
   recordingIndicator.className = `recording-indicator ${recording ? 'active' : 'inactive'}`;
   recordingIndicator.textContent = recording ? '● RECORDING ACTIVE' : '○ NOT RECORDING';
+  const recordingPlaybackPath = status.recording?.playback?.active
+    ? status.recording.playback.path
+    : '';
+  let recordingPlaybackChanged = false;
+  for (const file of ui.recordings) {
+    const playing = file.path === recordingPlaybackPath;
+    if (Boolean(file.playing) !== playing) {
+      file.playing = playing;
+      recordingPlaybackChanged = true;
+    }
+  }
+  if (recordingPlaybackChanged) renderRecordings();
   const muteAllActive = Boolean(status.presets?.mute_all_active);
   setButton(document.querySelector('[data-preset="mute-all"]'), muteAllActive, 'RESTORE AUDIO', 'MUTE ALL', 'danger');
 
@@ -285,13 +297,23 @@ function renderRecordings() {
   }
   for (const file of ui.recordings) {
     const {row, actions} = fileRow(file.name, file.size);
-    if (file.active) row.classList.add('active-file');
+    if (file.active || file.playing) row.classList.add('active-file');
+    const playback = iconButton(
+      file.playing ? '■' : '▶',
+      file.playing ? `Stop ${file.name}` : `Play ${file.name}`,
+      file.playing ? 'danger' : 'play',
+    );
+    playback.disabled = Boolean(file.active);
+    playback.addEventListener('click', () => (
+      file.playing ? stopRecordingPlayback(playback) : playRecording(file, playback)
+    ));
+    actions.appendChild(playback);
     actions.appendChild(downloadLink(`/api/recordings/${recordingUrl(file.path)}`, file.name));
     const rename = iconButton('✎', `Rename ${file.name}`);
-    rename.disabled = Boolean(file.active);
+    rename.disabled = Boolean(file.active || file.playing);
     rename.addEventListener('click', () => renameRecording(file));
     const remove = iconButton('🗑', `Delete ${file.name}`, 'danger');
-    remove.disabled = Boolean(file.active);
+    remove.disabled = Boolean(file.active || file.playing);
     remove.addEventListener('click', () => deleteRecording(file));
     actions.append(rename, remove);
     list.appendChild(row);
@@ -344,6 +366,26 @@ async function playSound(name, button) {
   try {
     await post(`/api/soundboard/${encodeURIComponent(name)}/play`);
     await refreshStatus();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function playRecording(file, button) {
+  button.disabled = true;
+  try {
+    applyStatus(await post(`/api/recordings/${recordingUrl(file.path)}/play`));
+    await loadFiles();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function stopRecordingPlayback(button) {
+  button.disabled = true;
+  try {
+    applyStatus(await post('/api/recordings/playback/stop'));
+    await loadFiles();
   } finally {
     button.disabled = false;
   }
@@ -468,7 +510,7 @@ function bindControls() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {applyStatus, formatUptime, meterPercent, ui, updateVolume};
+  module.exports = {applyStatus, formatUptime, meterPercent, renderRecordings, ui, updateVolume};
 }
 
 if (typeof document !== 'undefined') {

@@ -22,7 +22,8 @@ hAudio runtime ───── cached status and live levels ───── Fas
 - `config.py` loads validated JSON configuration and environment overrides.
 - `state.py` owns thread-safe state and atomic persistence.
 - `audio.py` discovers actual PipeWire nodes and reconciles only stale routes.
-- `media.py` supervises soundboard, combined recording, and retention.
+- `media.py` supervises soundboard, combined recording, direct headset-only
+  recording playback, and retention.
 - `app.py` owns lifecycle tasks, status caching, API routes, and WebSockets.
 - `haudio_main.py` is the stable Uvicorn entry point.
 
@@ -37,6 +38,8 @@ WebSocket message without repeating hardware enumeration.
 - A backend restart preserves healthy server-side PipeWire loopbacks.
 - A failed recording or soundboard process is reported without removing live
   computer/headset routes.
+- Recording playback targets the assigned headset sink directly and is isolated
+  from both computer microphone routes.
 - A requested recording is retried after a temporary device loss.
 - Invalid or duplicate device assignments are rejected before graph changes.
 

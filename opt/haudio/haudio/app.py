@@ -263,7 +263,10 @@ class Runtime:
                 "mute": current["mic_mute"], "route_pc1": current["mic_pc1"],
                 "route_pc2": current["mic_pc2"],
             },
-            "recording": {"session": self.media.recording_active()},
+            "recording": {
+                "session": self.media.recording_active(),
+                "playback": self.media.recording_playback_status(),
+            },
             "soundboard": self.media.soundboard_status(),
             "levels": copy.deepcopy(self.meters.levels),
             "system": system,
@@ -288,6 +291,10 @@ class Runtime:
         # status refresh. Keep playback controls synchronized with the actual
         # FFmpeg process on every lightweight WebSocket update.
         cached["soundboard"] = self.media.soundboard_status()
+        cached["recording"] = {
+            "session": self.media.recording_active(),
+            "playback": self.media.recording_playback_status(),
+        }
         return cached
 
     async def device_monitor(self) -> None:
@@ -403,6 +410,7 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
         )
         if duplicate_role:
             raise HTTPException(409, f"audio card is already assigned to {duplicate_role}")
+        await asyncio.to_thread(runtime.media.stop_recording_playback)
         assignments[request.role] = request.card_id
         runtime.store.update({"assignments": assignments})
         await asyncio.to_thread(runtime.audio.reconcile_graph)
@@ -557,6 +565,16 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
     async def recordings():
         return await asyncio.to_thread(runtime.media.recording_files)
 
+    @app.post("/api/recordings/playback/stop")
+    async def stop_recording_playback():
+        await asyncio.to_thread(runtime.media.stop_recording_playback)
+        return await fresh_status()
+
+    @app.post("/api/recordings/{relative:path}/play")
+    async def play_recording(relative: str):
+        await asyncio.to_thread(runtime.media.play_recording, relative)
+        return await fresh_status()
+
     @app.get("/api/recordings/{relative:path}")
     async def download_recording(relative: str):
         path = runtime.media.recording_path(relative)
@@ -565,7 +583,7 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
     @app.post("/api/recordings/{relative:path}/rename")
     async def rename_recording(relative: str, request: RenameRequest):
         source = runtime.media.recording_path(relative)
-        runtime.media.ensure_not_active_recording(source)
+        runtime.media.ensure_recording_not_in_use(source)
         new_name = request.name.strip()
         if not valid_recording_filename(new_name):
             raise HTTPException(400, "invalid filename")
@@ -578,7 +596,7 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
     @app.delete("/api/recordings/{relative:path}")
     async def delete_recording(relative: str):
         path = runtime.media.recording_path(relative)
-        runtime.media.ensure_not_active_recording(path)
+        runtime.media.ensure_recording_not_in_use(path)
         path.unlink()
         return await recordings()
 

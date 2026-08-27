@@ -13,7 +13,7 @@ sys.path.insert(0, str(APP_ROOT))
 from haudio.app import Runtime, create_app  # noqa: E402
 from haudio.audio import AudioController, CommandResult  # noqa: E402
 from haudio.config import Config  # noqa: E402
-from haudio.media import valid_recording_filename, valid_sound_filename  # noqa: E402
+from haudio.media import MediaManager, valid_recording_filename, valid_sound_filename  # noqa: E402
 from haudio.state import StateStore  # noqa: E402
 
 
@@ -34,6 +34,62 @@ def test_filename_validation_allows_common_characters_but_blocks_paths():
     assert not valid_sound_filename("../escape.mp3")
     assert valid_recording_filename("Peter's session 01.opus")
     assert not valid_recording_filename("../session.opus")
+
+
+def test_recording_playback_targets_only_the_assigned_headset(tmp_path, monkeypatch):
+    calls = []
+
+    class RunningProcess:
+        returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    class PlaybackAudio:
+        def nodes(self):
+            return {
+                "pc1_in": "pc1-source", "pc1_out": "pc1-sink",
+                "pc2_in": "pc2-source", "pc2_out": "pc2-sink",
+                "mic_in": "headset-source", "headset": "headset-only-sink",
+            }
+
+        def environment(self):
+            return {}
+
+    def popen(args, **kwargs):
+        calls.append((args, kwargs))
+        return RunningProcess()
+
+    monkeypatch.setattr("haudio.media.subprocess.Popen", popen)
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds",
+    )
+    config.ensure_directories()
+    recording = config.recording_dir / "2026-08-28" / "session.opus"
+    recording.parent.mkdir()
+    recording.write_bytes(b"OggS")
+    media = MediaManager(config, StateStore(config.state_file), PlaybackAudio())
+
+    media.play_recording("2026-08-28/session.opus")
+
+    args = calls[0][0]
+    assert args[args.index("-device") + 1] == "headset-only-sink"
+    assert "HAUDIO_SOUNDBOARD" not in args
+    assert "pc1-sink" not in args
+    assert "pc2-sink" not in args
+    assert media.recording_playback_status()["active"] is True
+    media.stop_recording_playback()
+    assert media.recording_playback_status()["active"] is False
 
 
 def test_audio_cards_use_real_nodes_instead_of_constructed_suffixes(tmp_path):
@@ -132,12 +188,24 @@ class FakeAudio:
 class FakeMedia:
     def __init__(self):
         self.soundboard = {"playing": "", "active": False, "volume": 100}
+        self.recording_playback = {"active": False, "path": "", "name": ""}
 
     def soundboard_status(self):
         return dict(self.soundboard)
 
     def recording_active(self):
         return False
+
+    def recording_playback_status(self):
+        return dict(self.recording_playback)
+
+    def play_recording(self, relative):
+        self.recording_playback = {
+            "active": True, "path": relative, "name": Path(relative).name,
+        }
+
+    def stop_recording_playback(self):
+        self.recording_playback = {"active": False, "path": "", "name": ""}
 
 
 class FakeRuntime:
@@ -169,7 +237,11 @@ class FakeRuntime:
             "headset": {"connected": True, "volume": state["headset_volume"]},
             "microphone": {"connected": True, "volume": state["mic_volume"], "mute": state["mic_mute"],
                            "route_pc1": state["mic_pc1"], "route_pc2": state["mic_pc2"]},
-            "recording": {"session": False}, "soundboard": self.media.soundboard_status(),
+            "recording": {
+                "session": False,
+                "playback": self.media.recording_playback_status(),
+            },
+            "soundboard": self.media.soundboard_status(),
             "levels": {}, "system": {"pipewire": True, "graph_ready": True},
             "devices": self.device_payload(),
             "presets": {"mute_all_active": state.get("mute_all_active", False)},
@@ -194,6 +266,27 @@ def test_mic_mute_and_volume_api_are_reachable(tmp_path):
         response = client.post("/api/mic/volume", json={"value": 37})
         assert response.status_code == 200
         assert response.json()["microphone"]["volume"] == 37
+
+
+def test_recording_playback_api_reports_live_state(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
+    )
+    runtime = FakeRuntime(config)
+    app = create_app(config, runtime)
+    with TestClient(app) as client:
+        started = client.post("/api/recordings/2026-08-28/session.opus/play")
+        assert started.status_code == 200
+        assert started.json()["recording"]["playback"] == {
+            "active": True,
+            "path": "2026-08-28/session.opus",
+            "name": "session.opus",
+        }
+
+        stopped = client.post("/api/recordings/playback/stop")
+        assert stopped.status_code == 200
+        assert stopped.json()["recording"]["playback"]["active"] is False
 
 
 def test_duplicate_device_assignment_is_rejected(tmp_path):
@@ -308,10 +401,11 @@ def test_frontend_is_complete_and_uses_stable_dom_updates(tmp_path):
         assert "innerHTML" not in javascript.text
         assert "connectWebSocket" in javascript.text
         assert 'aria-pressed="false" disabled>■ STOP' in index.text
-        assert '/static/app.js?v=0.02' in index.text
+        assert '/static/app.js?v=0.02.1' in index.text
         assert '/static/style.css?v=0.02' in index.text
         assert "soundboardStop.classList.toggle('danger', soundboardActive)" in javascript.text
         assert "soundboardStop.disabled = !soundboardActive" in javascript.text
+        assert "playRecording(file, playback)" in javascript.text
 
 
 def test_live_status_uses_actual_soundboard_process_state(tmp_path):

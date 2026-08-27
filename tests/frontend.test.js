@@ -15,6 +15,10 @@ class MockClassList {
     else this.values.delete(name);
   }
 
+  add(name) {
+    this.values.add(name);
+  }
+
   contains(name) {
     return this.values.has(name);
   }
@@ -31,6 +35,8 @@ class MockElement {
     this.disabled = false;
     this.hidden = false;
     this.attributes = {};
+    this.children = [];
+    this.listeners = {};
   }
 
   setAttribute(name, value) {
@@ -39,6 +45,23 @@ class MockElement {
 
   matches() {
     return false;
+  }
+
+  append(...children) {
+    this.children.push(...children);
+  }
+
+  appendChild(child) {
+    this.children.push(child);
+    return child;
+  }
+
+  replaceChildren(...children) {
+    this.children = children;
+  }
+
+  addEventListener(name, callback) {
+    this.listeners[name] = callback;
   }
 }
 
@@ -51,6 +74,7 @@ function createDocument() {
   return {
     activeElement: null,
     getElementById: get,
+    createElement: (tagName) => new MockElement(tagName),
     querySelector: (selector) => selector === '[data-preset="mute-all"]' ? get('mute-all') : null,
     elements,
   };
@@ -135,4 +159,30 @@ test('remote updates do not move a slider while it is active or pending', () => 
   frontend.updateVolume('pc1', 75);
   assert.equal(slider.value, 75);
   assert.equal(document.getElementById('pc1-volume-value').textContent, '75%');
+});
+
+test('recording rows expose a headset play and stop toggle', () => {
+  global.document = createDocument();
+  frontend.ui.recordings = [{
+    path: '2026-08-28/session.opus',
+    name: 'session.opus',
+    size: 1024,
+    active: false,
+    playing: false,
+  }];
+
+  frontend.renderRecordings();
+  let row = document.getElementById('recording-list').children[0];
+  let playback = row.children[1].children[0];
+  assert.equal(playback.textContent, '▶');
+  assert.equal(playback.className, 'icon-button play');
+  assert.equal(playback.attributes['aria-label'], 'Play session.opus');
+
+  frontend.ui.recordings[0].playing = true;
+  frontend.renderRecordings();
+  row = document.getElementById('recording-list').children[0];
+  playback = row.children[1].children[0];
+  assert.equal(playback.textContent, '■');
+  assert.equal(playback.className, 'icon-button danger');
+  assert.equal(playback.attributes['aria-label'], 'Stop session.opus');
 });

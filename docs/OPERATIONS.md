@@ -55,8 +55,11 @@ blocked to prevent accidental feedback.
 ## Recordings
 
 Combined recordings contain headset output and microphone at the configured
-Opus bitrate. Active segments cannot be renamed or deleted. If FFmpeg exits
-after temporary device loss, hAudio retries while recording remains requested.
+Opus bitrate. The play button sends an existing recording directly to the
+assigned headset; it does not use either computer output. While a file is
+playing it cannot be renamed or deleted. Active recording segments cannot be
+played, renamed, or deleted. If FFmpeg exits after temporary device loss,
+hAudio retries while recording remains requested.
 
 Retention runs hourly. Files older than `recording_max_age_days` are removed,
 then the oldest files are removed as needed to maintain
