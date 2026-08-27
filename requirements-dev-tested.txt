@@ -1,4 +1,4 @@
-# Tested direct development dependency constraints for hAudio 0.01.
+# Tested direct development dependency constraints for hAudio 0.02.
 -r requirements-tested.txt
 pytest==8.3.5
 httpx==0.28.1

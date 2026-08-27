@@ -1,4 +1,4 @@
-# Tested direct runtime dependency constraints for hAudio 0.01.
+# Tested direct runtime dependency constraints for hAudio 0.02.
 # Transitive dependencies are intentionally resolved by pip for the target
 # Python version and platform; this file is not a fully reproducible lock.
 fastapi==0.115.11

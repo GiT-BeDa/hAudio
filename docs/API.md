@@ -81,7 +81,7 @@ headset and currently active microphone routes.
 
 ## Recording management
 
-Version 0.01 records the combined headset output and microphone into one
+Version 0.02 records the combined headset output and microphone into one
 segmented Opus session.
 
 | Method | Endpoint | Purpose |
