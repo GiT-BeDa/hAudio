@@ -155,7 +155,11 @@ function applyStatus(status) {
   const muteAllActive = Boolean(status.presets?.mute_all_active);
   setButton(document.querySelector('[data-preset="mute-all"]'), muteAllActive, 'RESTORE AUDIO', 'MUTE ALL', 'danger');
 
-  const playing = status.soundboard?.active ? status.soundboard.playing : '';
+  const soundboardActive = Boolean(status.soundboard?.active);
+  const playing = soundboardActive ? status.soundboard.playing : '';
+  const soundboardStop = byId('soundboard-stop');
+  soundboardStop.classList.toggle('danger', soundboardActive);
+  soundboardStop.setAttribute('aria-pressed', String(soundboardActive));
   byId('soundboard-status').textContent = playing ? `Playing: ${playing}` : '';
   updateDevices(status.devices);
 
