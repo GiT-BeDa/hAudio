@@ -1,0 +1,27 @@
+HAUDIO 0.01 backup – 2026-08-27
+
+Included:
+  LICENSE
+  VERSION
+  requirements.txt
+  requirements-dev.txt
+  .gitignore
+  README.md
+  MANIFEST.txt
+  opt/haudio/haudio_main.py
+  etc/systemd/system/haudio-control.service
+  etc/pipewire/pipewire.conf.d/haudio.conf
+  docs/INSTALL.md
+  docs/OPERATIONS.md
+  docs/CURRENT-STATE.md
+  tests/test_haudio.py
+  docs/images/WebInterface.png
+
+Not included:
+  - Audio recordings
+  - /var/lib/haudio/state.json
+  - SSH private keys
+  - Credentials or Wi-Fi secrets
+
+The application currently uses a single Python file with the web interface
+embedded in it. No separate frontend build environment is required.
