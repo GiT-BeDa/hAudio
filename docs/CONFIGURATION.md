@@ -38,6 +38,11 @@ Unknown configuration keys stop startup with an explicit error instead of
 being silently ignored. Restart `haudio-control.service` after changing the
 configuration.
 
+On a fresh installation, PC1 and PC2 start at 50%, while headset and microphone
+start at 100%. The built-in preset templates use the same volume baseline.
+Existing persisted values and user-saved presets are preserved during an
+upgrade.
+
 ## Editable presets
 
 Set the desired volumes, mute states, and microphone routes in the web
@@ -49,3 +54,7 @@ reboots.
 `MUTE ALL` is intentionally not saved as a normal preset. It temporarily saves
 the current mute/routing state and changes its label to `RESTORE AUDIO`. Press
 it again to restore that saved state.
+
+Global microphone mute temporarily makes both route buttons visually inactive;
+their saved routes remain intact. Pressing a muted route button enables that
+route and clears global microphone mute.

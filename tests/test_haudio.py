@@ -14,7 +14,7 @@ from haudio.app import Runtime, create_app  # noqa: E402
 from haudio.audio import AudioController, CommandResult  # noqa: E402
 from haudio.config import Config  # noqa: E402
 from haudio.media import MediaManager, valid_recording_filename, valid_sound_filename  # noqa: E402
-from haudio.state import StateStore  # noqa: E402
+from haudio.state import DEFAULT_PRESETS, StateStore  # noqa: E402
 
 
 def test_state_store_is_atomic_and_round_trips(tmp_path):
@@ -27,6 +27,19 @@ def test_state_store_is_atomic_and_round_trips(tmp_path):
     restored = StateStore(path)
     restored.load()
     assert restored.get("pc1_volume") == 42
+
+
+def test_fresh_install_and_builtin_presets_use_safe_baseline_volumes(tmp_path):
+    state = StateStore(tmp_path / "state.json").snapshot()
+    expected = {
+        "pc1_volume": 50,
+        "pc2_volume": 50,
+        "headset_volume": 100,
+        "mic_volume": 100,
+    }
+    assert {key: state[key] for key in expected} == expected
+    for preset in DEFAULT_PRESETS.values():
+        assert {key: preset[key] for key in expected} == expected
 
 
 def test_filename_validation_allows_common_characters_but_blocks_paths():
@@ -401,7 +414,7 @@ def test_frontend_is_complete_and_uses_stable_dom_updates(tmp_path):
         assert "innerHTML" not in javascript.text
         assert "connectWebSocket" in javascript.text
         assert 'aria-pressed="false" disabled>■ STOP' in index.text
-        assert '/static/app.js?v=0.02.1' in index.text
+        assert '/static/app.js?v=0.02.2' in index.text
         assert '/static/style.css?v=0.02' in index.text
         assert "soundboardStop.classList.toggle('danger', soundboardActive)" in javascript.text
         assert "soundboardStop.disabled = !soundboardActive" in javascript.text

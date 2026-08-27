@@ -21,36 +21,36 @@ PRESET_KEYS = (
 
 DEFAULT_PRESETS: dict[str, dict[str, Any]] = {
     "normal": {
-        "pc1_volume": 70, "pc2_volume": 70, "headset_volume": 65,
-        "mic_volume": 50, "soundboard_volume": 100,
+        "pc1_volume": 50, "pc2_volume": 50, "headset_volume": 100,
+        "mic_volume": 100, "soundboard_volume": 100,
         "pc1_mute": False, "pc2_mute": False, "mic_mute": False,
         "mic_pc1": True, "mic_pc2": True,
     },
     "pc1-only": {
-        "pc1_volume": 70, "pc2_volume": 70, "headset_volume": 65,
-        "mic_volume": 50, "soundboard_volume": 100,
+        "pc1_volume": 50, "pc2_volume": 50, "headset_volume": 100,
+        "mic_volume": 100, "soundboard_volume": 100,
         "pc1_mute": False, "pc2_mute": True, "mic_mute": False,
         "mic_pc1": True, "mic_pc2": False,
     },
     "pc2-only": {
-        "pc1_volume": 70, "pc2_volume": 70, "headset_volume": 65,
-        "mic_volume": 50, "soundboard_volume": 100,
+        "pc1_volume": 50, "pc2_volume": 50, "headset_volume": 100,
+        "mic_volume": 100, "soundboard_volume": 100,
         "pc1_mute": True, "pc2_mute": False, "mic_mute": False,
         "mic_pc1": False, "mic_pc2": True,
     },
     "meeting": {
-        "pc1_volume": 60, "pc2_volume": 60, "headset_volume": 65,
-        "mic_volume": 50, "soundboard_volume": 100,
+        "pc1_volume": 50, "pc2_volume": 50, "headset_volume": 100,
+        "mic_volume": 100, "soundboard_volume": 100,
         "pc1_mute": False, "pc2_mute": False, "mic_mute": False,
         "mic_pc1": True, "mic_pc2": True,
     },
 }
 
 DEFAULT_STATE: dict[str, Any] = {
-    "pc1_volume": 70,
-    "pc2_volume": 70,
-    "headset_volume": 65,
-    "mic_volume": 50,
+    "pc1_volume": 50,
+    "pc2_volume": 50,
+    "headset_volume": 100,
+    "mic_volume": 100,
     "soundboard_volume": 100,
     "pc1_mute": False,
     "pc2_mute": False,

@@ -87,6 +87,10 @@ function updateVolume(name, value) {
   }
 }
 
+function nextMicrophoneRouteValue(microphone, computer) {
+  return Boolean(microphone?.mute || !microphone?.[`route_${computer}`]);
+}
+
 function updateDevices(devices) {
   if (!devices) return;
   const signature = JSON.stringify({cards: devices.cards, selected: devices.selected});
@@ -137,9 +141,14 @@ function applyStatus(status) {
 
   setButton(byId('pc1-mute'), Boolean(status.pc1?.mute), 'MUTED', 'MUTE', 'danger');
   setButton(byId('pc2-mute'), Boolean(status.pc2?.mute), 'MUTED', 'MUTE', 'danger');
-  setButton(byId('mic-mute'), Boolean(microphone.mute), 'MIC MUTED', 'MIC MUTE', 'danger');
-  setButton(byId('mic-pc1'), Boolean(microphone.route_pc1), 'PC1 ACTIVE', 'PC1 OFF');
-  setButton(byId('mic-pc2'), Boolean(microphone.route_pc2), 'PC2 ACTIVE', 'PC2 OFF');
+  const microphoneMuted = Boolean(microphone.mute);
+  setButton(byId('mic-mute'), microphoneMuted, 'MIC MUTED', 'MIC MUTE', 'danger');
+  for (const computer of ['pc1', 'pc2']) {
+    const routed = Boolean(microphone[`route_${computer}`]);
+    const active = routed && !microphoneMuted;
+    const inactiveText = routed && microphoneMuted ? `${computer.toUpperCase()} MUTED` : `${computer.toUpperCase()} OFF`;
+    setButton(byId(`mic-${computer}`), active, `${computer.toUpperCase()} ACTIVE`, inactiveText);
+  }
 
   const levels = status.levels || {};
   updateMeter('pc1', levels.pc1);
@@ -473,8 +482,13 @@ function bindControls() {
   byId('pc1-mute').addEventListener('click', async () => applyStatus(await post('/api/pc1/mute', {value: !ui.state.pc1?.mute})));
   byId('pc2-mute').addEventListener('click', async () => applyStatus(await post('/api/pc2/mute', {value: !ui.state.pc2?.mute})));
   byId('mic-mute').addEventListener('click', async () => applyStatus(await post('/api/mic/mute', {value: !ui.state.microphone?.mute})));
-  byId('mic-pc1').addEventListener('click', async () => applyStatus(await post('/api/mic/route/pc1', {value: !ui.state.microphone?.route_pc1})));
-  byId('mic-pc2').addEventListener('click', async () => applyStatus(await post('/api/mic/route/pc2', {value: !ui.state.microphone?.route_pc2})));
+  for (const computer of ['pc1', 'pc2']) {
+    byId(`mic-${computer}`).addEventListener('click', async () => {
+      const microphone = ui.state.microphone || {};
+      const value = nextMicrophoneRouteValue(microphone, computer);
+      applyStatus(await post(`/api/mic/route/${computer}`, {value}));
+    });
+  }
   for (const select of document.querySelectorAll('select[data-role]')) {
     select.addEventListener('change', () => assignDevice(select.dataset.role, select.value));
   }
@@ -510,7 +524,15 @@ function bindControls() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {applyStatus, formatUptime, meterPercent, renderRecordings, ui, updateVolume};
+  module.exports = {
+    applyStatus,
+    formatUptime,
+    meterPercent,
+    nextMicrophoneRouteValue,
+    renderRecordings,
+    ui,
+    updateVolume,
+  };
 }
 
 if (typeof document !== 'undefined') {

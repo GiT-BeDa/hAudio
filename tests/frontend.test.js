@@ -82,10 +82,10 @@ function createDocument() {
 
 function status(overrides = {}) {
   return {
-    pc1: {connected: false, volume: 60, mute: false},
-    pc2: {connected: true, volume: 55, mute: false},
-    headset: {connected: true, volume: 65},
-    microphone: {connected: true, volume: 50, mute: false, route_pc1: true, route_pc2: false},
+    pc1: {connected: false, volume: 50, mute: false},
+    pc2: {connected: true, volume: 50, mute: false},
+    headset: {connected: true, volume: 100},
+    microphone: {connected: true, volume: 100, mute: false, route_pc1: true, route_pc2: false},
     recording: {session: false},
     soundboard: {active: false, playing: '', volume: 80},
     presets: {mute_all_active: false},
@@ -138,6 +138,31 @@ test('disconnected inputs remain at the silent meter floor', () => {
   assert.equal(document.getElementById('pc1-state').className, 'device-state off');
   assert.equal(document.getElementById('pc1-meter').style.width, '0%');
   assert.equal(document.getElementById('pc1-level').textContent, '-60.0 dB');
+});
+
+test('microphone routes are not shown active while globally muted', () => {
+  global.document = createDocument();
+  frontend.applyStatus(status({
+    microphone: {
+      connected: true,
+      volume: 100,
+      mute: true,
+      route_pc1: true,
+      route_pc2: true,
+    },
+  }));
+
+  const pc1 = document.getElementById('mic-pc1');
+  const pc2 = document.getElementById('mic-pc2');
+  assert.equal(pc1.classList.contains('active'), false);
+  assert.equal(pc2.classList.contains('active'), false);
+  assert.equal(pc1.textContent, 'PC1 MUTED');
+  assert.equal(pc2.textContent, 'PC2 MUTED');
+  assert.equal(pc1.attributes['aria-pressed'], 'false');
+  assert.equal(pc2.attributes['aria-pressed'], 'false');
+  assert.equal(frontend.nextMicrophoneRouteValue({mute: true, route_pc1: true}, 'pc1'), true);
+  assert.equal(frontend.nextMicrophoneRouteValue({mute: false, route_pc1: true}, 'pc1'), false);
+  assert.equal(frontend.nextMicrophoneRouteValue({mute: false, route_pc1: false}, 'pc1'), true);
 });
 
 test('remote updates do not move a slider while it is active or pending', () => {

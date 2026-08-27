@@ -19,7 +19,7 @@ Quick examples:
 curl --fail http://<raspberry-pi-address>:8765/api/status
 curl --fail -X POST http://<raspberry-pi-address>:8765/api/pc1/volume \
   -H 'Content-Type: application/json' \
-  -d '{"value":70}'
+  -d '{"value":50}'
 ~~~
 
 ## Status and devices
@@ -37,10 +37,10 @@ route values are booleans.
 
 | Method | Endpoint | JSON body |
 | --- | --- | --- |
-| `POST` | `/api/pc1/volume` | `{"value":70}` |
-| `POST` | `/api/pc2/volume` | `{"value":70}` |
-| `POST` | `/api/headset/volume` | `{"value":65}` |
-| `POST` | `/api/mic/volume` | `{"value":50}` |
+| `POST` | `/api/pc1/volume` | `{"value":50}` |
+| `POST` | `/api/pc2/volume` | `{"value":50}` |
+| `POST` | `/api/headset/volume` | `{"value":100}` |
+| `POST` | `/api/mic/volume` | `{"value":100}` |
 | `POST` | `/api/soundboard/volume` | `{"value":100}` |
 | `POST` | `/api/pc1/mute` | `{"value":true}` |
 | `POST` | `/api/pc2/mute` | `{"value":true}` |
@@ -62,6 +62,8 @@ current volumes, mutes, and microphone routes with
 
 Activating a microphone route with `POST /api/mic/route/{computer}` also clears
 global microphone mute so the newly activated route is immediately usable.
+The web interface keeps saved routes visually inactive while global microphone
+mute is enabled.
 
 ## Soundboard
 
@@ -118,7 +120,7 @@ Example:
 
 ```json
 {
-  "pc1": {"connected": true, "volume": 70, "mute": false},
+  "pc1": {"connected": true, "volume": 50, "mute": false},
   "recording": {"session": false, "playback": {"active": true, "path": "2026-08-28/session.opus", "name": "session.opus"}},
   "soundboard": {"playing": "alert.mp3", "active": true, "volume": 80},
   "levels": {"pc1": -18.2, "pc2": -60.0, "microphone": -24.1, "headset": -14.0},
