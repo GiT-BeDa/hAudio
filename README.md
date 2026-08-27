@@ -41,24 +41,30 @@ can be selected for the headset role.
 ## Included files
 
 - opt/haudio/haudio_main.py – FastAPI backend, PipeWire control, device
-  monitoring, web interface, level meters, soundboard, and recording
+  monitoring, level meters, soundboard, and recording
+- opt/haudio/frontend/ – static HTML, JavaScript, and CSS for the web interface
 - etc/systemd/system/haudio-control.service – automatic backend start/restart
 - etc/pipewire/pipewire.conf.d/haudio.conf – 48 kHz audio parameters
-- docs/ – installation, operations, and current-state documentation
-- requirements.txt and requirements-dev.txt – runtime and test dependencies
+- docs/ – installation, operations, API, and reference-setup documentation
+- requirements.txt and requirements-dev.txt – flexible runtime and test dependencies
+- requirements-lock.txt and requirements-dev-lock.txt – tested dependency baselines
 - tests/ – automated unit tests for safety-critical helper logic
 
 Runtime state, recordings, credentials, and private SSH keys are not included.
 
 ## Quick installation
 
-On a Raspberry Pi running Raspberry Pi OS or Debian, create the `haudio` service
-user and install the required system packages (PipeWire, WirePlumber, FFmpeg,
-Python 3, FastAPI, and Uvicorn). Then copy the files from this repository:
+For a complete installation, including system packages, the service user,
+static frontend files, and verification, follow [docs/INSTALL.md](docs/INSTALL.md).
+The abbreviated example below assumes those prerequisites are already present:
 
 ~~~bash
 sudo install -d /opt/haudio
 sudo install -o haudio -g haudio -m 755 opt/haudio/haudio_main.py /opt/haudio/haudio_main.py
+sudo install -d -o haudio -g haudio /opt/haudio/frontend
+sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/index.html /opt/haudio/frontend/index.html
+sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/app.js /opt/haudio/frontend/app.js
+sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/style.css /opt/haudio/frontend/style.css
 sudo install -D -m 644 etc/systemd/system/haudio-control.service /etc/systemd/system/haudio-control.service
 sudo install -D -o haudio -g haudio -m 644 etc/pipewire/pipewire.conf.d/haudio.conf \
   /home/haudio/.config/pipewire/pipewire.conf.d/haudio.conf
@@ -81,7 +87,8 @@ pytest -q
 ~~~
 
 The tests cover device assignment, loopback cleanup filtering, filename
-validation, runtime environment handling, and the installation configuration.
+validation, runtime environment handling, the installation configuration, and
+serving the separated frontend assets.
 
 ## Web interface
 
@@ -130,3 +137,9 @@ Audio processing runs independently of the browser. USB capture gain is reset
 to a safe level during startup and device recovery to prevent clipping.
 The Raspberry Pi undervoltage warning display is suppressed with
 avoid_warnings=1; kernel undervoltage detection remains enabled.
+
+## Security and contribution
+
+Read [SECURITY.md](SECURITY.md) before exposing the service beyond a trusted
+LAN. Contributions and release hygiene are described in
+[CONTRIBUTING.md](CONTRIBUTING.md).

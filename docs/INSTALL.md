@@ -21,6 +21,8 @@ Install the Python dependencies before starting the service:
 sudo apt update
 sudo apt install pipewire pipewire-pulse wireplumber ffmpeg python3 python3-pip
 python3 -m pip install -r requirements.txt
+# For the reproducible tested baseline, use this instead:
+# python3 -m pip install -r requirements-lock.txt
 ~~~
 
 The service unit runs as the unprivileged `haudio` user. Create that user and
@@ -36,6 +38,10 @@ sudo useradd --system --create-home --groups audio,video haudio
 ~~~bash
 install -d /opt/haudio
 install -o haudio -g haudio -m 755 opt/haudio/haudio_main.py /opt/haudio/haudio_main.py
+install -d -o haudio -g haudio /opt/haudio/frontend
+install -o haudio -g haudio -m 644 opt/haudio/frontend/index.html /opt/haudio/frontend/index.html
+install -o haudio -g haudio -m 644 opt/haudio/frontend/app.js /opt/haudio/frontend/app.js
+install -o haudio -g haudio -m 644 opt/haudio/frontend/style.css /opt/haudio/frontend/style.css
 install -D -m 644 etc/systemd/system/haudio-control.service /etc/systemd/system/haudio-control.service
 install -D -o haudio -g haudio -m 644 etc/pipewire/pipewire.conf.d/haudio.conf \
   /home/haudio/.config/pipewire/pipewire.conf.d/haudio.conf
@@ -62,3 +68,7 @@ runuser -u haudio -- pactl list cards
 The application may need several seconds after startup for device
 initialization. Replace `<raspberry-pi-address>` with the Pi's current LAN
 address when opening the web interface: `http://<raspberry-pi-address>:8765`.
+
+For development and CI, install the tested development set with
+`python3 -m pip install -r requirements-dev-lock.txt` and run `pytest -q` from
+the repository root.

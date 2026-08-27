@@ -1,0 +1,5 @@
+# Tested runtime baseline for hAudio 0.01 (Python 3.13).
+fastapi==0.115.11
+uvicorn[standard]==0.32.0
+python-multipart==0.0.20
+pydantic==2.10.6

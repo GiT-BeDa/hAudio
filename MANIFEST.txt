@@ -5,15 +5,24 @@ Included:
   VERSION
   requirements.txt
   requirements-dev.txt
+  requirements-lock.txt
+  requirements-dev-lock.txt
   .gitignore
   README.md
+  SECURITY.md
+  CONTRIBUTING.md
+  .github/ISSUE_TEMPLATE/bug_report.md
+  .github/ISSUE_TEMPLATE/feature_request.md
   MANIFEST.txt
   opt/haudio/haudio_main.py
+  opt/haudio/frontend/index.html
+  opt/haudio/frontend/app.js
+  opt/haudio/frontend/style.css
   etc/systemd/system/haudio-control.service
   etc/pipewire/pipewire.conf.d/haudio.conf
   docs/INSTALL.md
   docs/OPERATIONS.md
-  docs/CURRENT-STATE.md
+  docs/REFERENCE-SETUP.md
   docs/API.md
   tests/test_haudio.py
   docs/images/WebInterface.png
@@ -25,4 +34,5 @@ Not included:
   - Credentials or Wi-Fi secrets
 
 The application currently uses a single Python file with the web interface
-embedded in it. No separate frontend build environment is required.
+logic served from static frontend files. No separate frontend build
+environment is required.

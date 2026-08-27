@@ -2,6 +2,8 @@ import importlib.util
 import os
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 
 MODULE_PATH = Path(__file__).parents[1] / 'opt' / 'haudio' / 'haudio_main.py'
 spec = importlib.util.spec_from_file_location('haudio_main_under_test', MODULE_PATH)
@@ -70,3 +72,26 @@ def test_api_documentation_covers_controls_and_soundboard_volume():
     assert 'POST` | `/api/soundboard/volume' in docs
     assert '`/api/status`' in docs
     assert '`/ws`' in docs
+
+
+def test_frontend_is_served_as_separate_static_assets():
+    client = TestClient(haudio.APP)
+
+    index = client.get('/')
+    assert index.status_code == 200
+    assert 'hAudio 0.01' in index.text
+    assert '/static/app.js' in index.text
+    assert '/static/style.css' in index.text
+
+    javascript = client.get('/static/app.js')
+    stylesheet = client.get('/static/style.css')
+    assert javascript.status_code == 200
+    assert stylesheet.status_code == 200
+    assert 'function api' in javascript.text
+    assert '.card' in stylesheet.text
+
+
+def test_public_package_does_not_embed_the_old_html_page():
+    source = MODULE_PATH.read_text()
+    assert "HTML='''" not in source
+    assert 'StaticFiles' in source
