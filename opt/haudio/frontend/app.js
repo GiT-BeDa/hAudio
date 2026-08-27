@@ -154,7 +154,7 @@ function applyStatus(status) {
   updateMeter('pc1', levels.pc1);
   updateMeter('pc2', levels.pc2);
   updateMeter('headset', levels.headset);
-  updateMeter('microphone', levels.microphone);
+  updateMeter('microphone', microphoneMuted ? -60 : levels.microphone);
 
   const recording = Boolean(status.recording?.session);
   setButton(byId('recording-toggle'), recording, 'STOP RECORDING', 'START RECORDING', 'danger');

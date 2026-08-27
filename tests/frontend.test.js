@@ -150,6 +150,7 @@ test('microphone routes are not shown active while globally muted', () => {
       route_pc1: true,
       route_pc2: true,
     },
+    levels: {microphone: -6},
   }));
 
   const pc1 = document.getElementById('mic-pc1');
@@ -160,6 +161,8 @@ test('microphone routes are not shown active while globally muted', () => {
   assert.equal(pc2.textContent, 'PC2 MUTED');
   assert.equal(pc1.attributes['aria-pressed'], 'false');
   assert.equal(pc2.attributes['aria-pressed'], 'false');
+  assert.equal(document.getElementById('microphone-meter').style.width, '0%');
+  assert.equal(document.getElementById('microphone-level').textContent, '-60.0 dB');
   assert.equal(frontend.nextMicrophoneRouteValue({mute: true, route_pc1: true}, 'pc1'), true);
   assert.equal(frontend.nextMicrophoneRouteValue({mute: false, route_pc1: true}, 'pc1'), false);
   assert.equal(frontend.nextMicrophoneRouteValue({mute: false, route_pc1: false}, 'pc1'), true);

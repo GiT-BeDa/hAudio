@@ -57,4 +57,6 @@ it again to restore that saved state.
 
 Global microphone mute temporarily makes both route buttons visually inactive;
 their saved routes remain intact. Pressing a muted route button enables that
-route and clears global microphone mute.
+route and clears global microphone mute. The visible microphone meter stays at
+the silent floor while globally muted; raw input metering continues internally
+for diagnostics.

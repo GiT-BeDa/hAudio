@@ -414,7 +414,7 @@ def test_frontend_is_complete_and_uses_stable_dom_updates(tmp_path):
         assert "innerHTML" not in javascript.text
         assert "connectWebSocket" in javascript.text
         assert 'aria-pressed="false" disabled>■ STOP' in index.text
-        assert '/static/app.js?v=0.02.2' in index.text
+        assert '/static/app.js?v=0.02.3' in index.text
         assert '/static/style.css?v=0.02' in index.text
         assert "soundboardStop.classList.toggle('danger', soundboardActive)" in javascript.text
         assert "soundboardStop.disabled = !soundboardActive" in javascript.text
