@@ -1,4 +1,4 @@
-hAudio 0.01 backup – 2026-08-27
+hAudio 0.01 source distribution – updated 2026-08-28
 
 Included:
   LICENSE
@@ -11,6 +11,7 @@ Included:
   README.md
   SECURITY.md
   CONTRIBUTING.md
+  SHA256SUMS
   .github/ISSUE_TEMPLATE/bug_report.md
   .github/ISSUE_TEMPLATE/feature_request.md
   .github/workflows/tests.yml

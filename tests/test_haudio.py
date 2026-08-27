@@ -1,3 +1,4 @@
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -9,7 +10,7 @@ PROJECT_ROOT = Path(__file__).parents[1]
 APP_ROOT = PROJECT_ROOT / "opt" / "haudio"
 sys.path.insert(0, str(APP_ROOT))
 
-from haudio.app import create_app  # noqa: E402
+from haudio.app import Runtime, create_app  # noqa: E402
 from haudio.audio import AudioController, CommandResult  # noqa: E402
 from haudio.config import Config  # noqa: E402
 from haudio.media import valid_recording_filename, valid_sound_filename  # noqa: E402
@@ -129,8 +130,11 @@ class FakeAudio:
 
 
 class FakeMedia:
+    def __init__(self):
+        self.soundboard = {"playing": "", "active": False, "volume": 100}
+
     def soundboard_status(self):
-        return {"playing": "", "active": False, "volume": 100}
+        return dict(self.soundboard)
 
     def recording_active(self):
         return False
@@ -303,6 +307,24 @@ def test_frontend_is_complete_and_uses_stable_dom_updates(tmp_path):
         assert javascript.status_code == 200
         assert "innerHTML" not in javascript.text
         assert "connectWebSocket" in javascript.text
+        assert 'class="button" type="button" aria-pressed="false">■ STOP' in index.text
+        assert "soundboardStop.classList.toggle('danger', soundboardActive)" in javascript.text
+
+
+def test_live_status_uses_actual_soundboard_process_state(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
+    )
+    store = StateStore(config.state_file)
+    media = FakeMedia()
+    runtime = Runtime(config, store, FakeAudio(store), media)
+    runtime._status = {"soundboard": {"playing": "stale.mp3", "active": True, "volume": 1}}
+    media.soundboard = {"playing": "", "active": False, "volume": 75}
+
+    status = asyncio.run(runtime.status())
+
+    assert status["soundboard"] == {"playing": "", "active": False, "volume": 75}
 
 
 def test_documentation_and_service_use_generic_user_runtime():

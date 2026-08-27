@@ -1,9 +1,13 @@
 # hAudio 0.01 – Audio Routing for Two Computers
 
-Date: 2026-08-27  
-Author: Peter Grunert  
-Website: <https://www.bk99.de>  
-License: GNU General Public License v3.0 or later (GPL-3.0-or-later)
+[![Tests](https://github.com/GiT-BeDa/hAudio/actions/workflows/tests.yml/badge.svg)](https://github.com/GiT-BeDa/hAudio/actions/workflows/tests.yml)
+[![License: GPL v3 or later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.01-22c55e.svg)](VERSION)
+
+- Updated: 2026-08-28
+- Author: Peter Grunert
+- Website: <https://www.bk99.de>
+- License: GNU General Public License v3.0 or later (GPL-3.0-or-later)
 
 hAudio is a permanently running Raspberry Pi audio-routing system. It mixes
 audio from PC1 and PC2 to a wireless headset and routes the headset microphone
@@ -90,8 +94,9 @@ restores the previous mute/routing state when pressed a second time.
 
 ![hAudio web interface](docs/images/WebInterface.png)
 
-The screenshot is an example deployment. Device names and assignments vary
-depending on the hardware connected to the Raspberry Pi.
+The screenshot shows the current interface from an example deployment. Device
+names and assignments vary with the connected hardware. Its private LAN address
+has been replaced with the documentation-only example address `192.0.2.10`.
 
 The endpoint reference is available in [docs/API.md](docs/API.md).
 The process and failure-boundary design is described in

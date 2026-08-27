@@ -284,6 +284,10 @@ class Runtime:
         if not cached:
             cached = await self.refresh_status()
         cached["levels"] = copy.deepcopy(self.meters.levels)
+        # Process state changes faster than the comparatively expensive system
+        # status refresh. Keep playback controls synchronized with the actual
+        # FFmpeg process on every lightweight WebSocket update.
+        cached["soundboard"] = self.media.soundboard_status()
         return cached
 
     async def device_monitor(self) -> None:
@@ -318,13 +322,18 @@ class Runtime:
     async def media_monitor(self) -> None:
         retention_at = 0.0
         while True:
-            await asyncio.to_thread(self.media.poll)
-            if time.monotonic() - retention_at > 3600:
-                try:
+            try:
+                await asyncio.to_thread(self.media.poll)
+                if time.monotonic() - retention_at > 3600:
                     await asyncio.to_thread(self.media.cleanup_recordings)
-                except HTTPException:
-                    pass
+                    retention_at = time.monotonic()
+            except asyncio.CancelledError:
+                raise
+            except HTTPException:
+                # Retention skips an active recording and retries later.
                 retention_at = time.monotonic()
+            except Exception:
+                LOG.exception("Media monitor failed")
             await asyncio.sleep(1)
 
     async def start(self) -> None:
