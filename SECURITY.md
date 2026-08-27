@@ -17,10 +17,15 @@ do not replace authentication for untrusted networks.
 
 ## Reporting a vulnerability
 
-Please report security issues privately to the repository maintainer before
-opening a public issue. Include a description, affected version or commit,
-reproduction steps, and the potential impact. Do not include passwords,
-private keys, network addresses, recordings, or other personal data.
+Please use GitHub's private vulnerability reporting form at
+<https://github.com/GiT-BeDa/hAudio/security/advisories/new>. Private reporting
+must be enabled in the repository settings when the project becomes public. If
+the form is unavailable, request a private contact channel through
+<https://www.bk99.de> without posting vulnerability details publicly.
+
+Include a description, affected version or commit, reproduction steps, and the
+potential impact. Do not include passwords, private keys, network addresses,
+recordings, or other personal data.
 
 Until a fix is available, avoid publishing exploit details or making affected
 instances reachable from untrusted networks.

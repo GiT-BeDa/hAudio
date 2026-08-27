@@ -1,13 +1,26 @@
 # Install or restore hAudio
 
-This procedure targets Raspberry Pi OS or Debian with PipeWire. It creates a
-dedicated `haudio` account whose user manager owns PipeWire, WirePlumber, and
-the hAudio service. This keeps every audio process in the same runtime session.
+This procedure targets Raspberry Pi OS or Debian with Python 3.11 through 3.13
+and PipeWire. It creates a dedicated `haudio` account whose user manager owns
+PipeWire, WirePlumber, and the hAudio service. This keeps every audio process in
+the same runtime session.
 
-## 1. Install system packages
+## 1. Download hAudio
 
 ~~~bash
 sudo apt update
+sudo apt install git
+git clone https://github.com/GiT-BeDa/hAudio.git
+cd hAudio
+~~~
+
+All remaining commands that reference repository files must be run from this
+`hAudio` directory. A downloaded source archive can be used instead; extract it
+and change into its root directory first.
+
+## 2. Install system packages
+
+~~~bash
 sudo apt install pipewire pipewire-pulse wireplumber ffmpeg python3 python3-venv
 ~~~
 
@@ -15,7 +28,9 @@ Create the service account if it does not exist, then enable its persistent
 user manager:
 
 ~~~bash
-sudo useradd --system --create-home --groups audio haudio
+if ! id -u haudio >/dev/null 2>&1; then
+  sudo useradd --system --create-home --groups audio haudio
+fi
 sudo loginctl enable-linger haudio
 HAUDIO_UID="$(id -u haudio)"
 sudo systemctl start "user@${HAUDIO_UID}.service"
@@ -24,20 +39,22 @@ sudo systemctl start "user@${HAUDIO_UID}.service"
 Do not run PipeWire as root. The user manager creates the required runtime at
 `/run/user/<haudio-uid>` even when nobody is logged in.
 
-## 2. Back up an existing installation
+## 3. Back up an existing installation
 
-Skip files that do not exist yet.
+Existing paths are copied to timestamped backups. Missing paths are skipped.
 
 ~~~bash
-sudo cp -a /opt/haudio /opt/haudio.bak
-sudo cp -a /etc/haudio /etc/haudio.bak
-sudo cp -a /home/haudio/.config/systemd/user/haudio-control.service \
-  /home/haudio/.config/systemd/user/haudio-control.service.bak
+HAUDIO_BACKUP_SUFFIX="$(date +%Y%m%d-%H%M%S)"
+sudo test ! -e /opt/haudio || sudo cp -a /opt/haudio "/opt/haudio.bak-${HAUDIO_BACKUP_SUFFIX}"
+sudo test ! -e /etc/haudio || sudo cp -a /etc/haudio "/etc/haudio.bak-${HAUDIO_BACKUP_SUFFIX}"
+HAUDIO_SERVICE_FILE=/home/haudio/.config/systemd/user/haudio-control.service
+sudo test ! -e "$HAUDIO_SERVICE_FILE" || sudo cp -a "$HAUDIO_SERVICE_FILE" \
+  "${HAUDIO_SERVICE_FILE}.bak-${HAUDIO_BACKUP_SUFFIX}"
 ~~~
 
 Recordings and `/var/lib/haudio/state.json` are not replaced by the installation.
 
-## 3. Install application and writable directories
+## 4. Install application and writable directories
 
 Run these commands from the repository root:
 
@@ -56,14 +73,16 @@ sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/style.css /opt/haudi
 sudo install -m 644 etc/haudio/haudio.json /etc/haudio/haudio.json
 ~~~
 
-Create an isolated Python environment and install the tested dependency set:
+Create an isolated Python environment and install the tested direct dependency
+constraints. Pip resolves compatible transitive dependencies for the Pi's
+Python version and platform:
 
 ~~~bash
 sudo -u haudio python3 -m venv /opt/haudio/.venv
-sudo -u haudio /opt/haudio/.venv/bin/pip install -r requirements-lock.txt
+sudo -u haudio /opt/haudio/.venv/bin/pip install -r requirements-tested.txt
 ~~~
 
-## 4. Install PipeWire and user-service configuration
+## 5. Install PipeWire and user-service configuration
 
 ~~~bash
 sudo install -D -o haudio -g haudio -m 644 etc/pipewire/pipewire.conf.d/haudio.conf \
@@ -84,7 +103,7 @@ sudo -u haudio env XDG_RUNTIME_DIR="/run/user/${HAUDIO_UID}" \
   systemctl --user enable --now haudio-control.service
 ~~~
 
-## 5. Verify
+## 6. Verify
 
 ~~~bash
 HAUDIO_UID="$(id -u haudio)"

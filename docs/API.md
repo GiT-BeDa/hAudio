@@ -5,10 +5,22 @@ The default base URL is `http://<raspberry-pi-address>:8765`. Replace the
 placeholder with the Pi's current LAN address; do not include the angle
 brackets in the actual URL.
 
+FastAPI also provides interactive OpenAPI documentation at `/docs` and the raw
+schema at `/openapi.json`.
+
 All state-changing endpoints use `POST` with a JSON body unless noted
-otherwise. Successful responses contain the current state returned by
-`GET /api/status`; device and file endpoints return their resource-specific
-state. Errors are JSON objects such as `{"detail":"invalid volume"}`.
+otherwise. Audio control endpoints generally return the current system state;
+device, preset-save, and media endpoints return their resource-specific state.
+Errors are JSON objects such as `{"detail":"invalid volume"}`.
+
+Quick examples:
+
+~~~bash
+curl --fail http://<raspberry-pi-address>:8765/api/status
+curl --fail -X POST http://<raspberry-pi-address>:8765/api/pc1/volume \
+  -H 'Content-Type: application/json' \
+  -d '{"value":70}'
+~~~
 
 ## Status and devices
 
@@ -89,10 +101,11 @@ requested. Stop recording first so no open file is accidentally lost.
 
 ## Live updates
 
-Connect a WebSocket to `/ws`. The server sends a JSON status object about once
-per second. It includes the same main state sections as `/api/status`, plus
-live dB levels in `levels`. The browser automatically reconnects after a lost
-connection. Browser WebSocket origins must match the hAudio host.
+Connect a WebSocket to `/ws`. By default, the server sends four lightweight
+status updates per second (`websocket_interval_seconds` is `0.25`). It includes
+the same main state sections as `/api/status`, plus live dB levels in `levels`.
+The browser automatically reconnects after a lost connection. Browser
+WebSocket origins must match the hAudio host.
 
 Example:
 

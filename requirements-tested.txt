@@ -1,0 +1,7 @@
+# Tested direct runtime dependency constraints for hAudio 0.01.
+# Transitive dependencies are intentionally resolved by pip for the target
+# Python version and platform; this file is not a fully reproducible lock.
+fastapi==0.115.11
+uvicorn[standard]==0.32.0
+python-multipart==0.0.20
+pydantic==2.10.6

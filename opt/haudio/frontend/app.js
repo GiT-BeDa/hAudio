@@ -160,6 +160,7 @@ function applyStatus(status) {
   const soundboardStop = byId('soundboard-stop');
   soundboardStop.classList.toggle('danger', soundboardActive);
   soundboardStop.setAttribute('aria-pressed', String(soundboardActive));
+  soundboardStop.disabled = !soundboardActive;
   byId('soundboard-status').textContent = playing ? `Playing: ${playing}` : '';
   updateDevices(status.devices);
 
@@ -466,8 +467,14 @@ function bindControls() {
   });
 }
 
-bindControls();
-refreshStatus();
-loadFiles();
-connectWebSocket();
-setInterval(loadFiles, 30000);
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {applyStatus, formatUptime, meterPercent, ui, updateVolume};
+}
+
+if (typeof document !== 'undefined') {
+  bindControls();
+  refreshStatus();
+  loadFiles();
+  connectWebSocket();
+  setInterval(loadFiles, 30000);
+}

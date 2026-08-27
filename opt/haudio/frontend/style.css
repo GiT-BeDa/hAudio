@@ -156,7 +156,7 @@ h2 { margin-bottom: 0; font-size: 19px; letter-spacing: .025em; }
 .button:hover, .icon-button:hover { background: #475569; }
 .button.active, .button.primary, .icon-button.play { background: var(--green-dark); }
 .button.danger, .icon-button.danger { background: var(--red-dark); }
-.button:disabled, .icon-button:disabled { cursor: wait; opacity: .55; }
+.button:disabled, .icon-button:disabled { cursor: not-allowed; opacity: .55; }
 .button:focus-visible, .icon-button:focus-visible, input:focus-visible, select:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;

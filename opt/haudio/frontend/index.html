@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1220">
   <title>hAudio 0.01</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=0.01">
 </head>
 <body>
   <header class="page-header">
@@ -66,14 +66,14 @@
           <div class="card-title"><h2>HEADSET</h2><span id="headset-state" class="device-state off">● DISCONNECTED</span></div>
           <div class="control-label"><label for="headset-volume">Volume</label><strong id="headset-volume-value">0%</strong></div>
           <input id="headset-volume" class="volume" type="range" min="0" max="100" value="0">
-          <div class="meter"><i id="headset-meter"></i></div>
+          <div class="meter" aria-label="Headset output level"><i id="headset-meter"></i></div>
           <div class="meter-value" id="headset-level">−60.0 dB</div>
         </div>
         <div class="microphone-panel">
           <div class="card-title"><h2>MICROPHONE</h2><span id="microphone-state" class="device-state off">● DISCONNECTED</span></div>
           <div class="control-label"><label for="mic-volume">Volume</label><strong id="mic-volume-value">0%</strong></div>
           <input id="mic-volume" class="volume" type="range" min="0" max="100" value="0">
-          <div class="meter"><i id="microphone-meter"></i></div>
+          <div class="meter" aria-label="Microphone level"><i id="microphone-meter"></i></div>
           <div class="meter-value" id="microphone-level">−60.0 dB</div>
           <div class="button-row">
             <button id="mic-mute" class="button" type="button">MIC MUTE</button>
@@ -97,7 +97,7 @@
     <section class="card soundboard-card">
       <div class="card-title">
         <div><h2>SOUNDBOARD</h2><p>Playback goes to the headset and active microphone routes.</p></div>
-        <button id="soundboard-stop" class="button" type="button" aria-pressed="false">■ STOP</button>
+        <button id="soundboard-stop" class="button" type="button" aria-pressed="false" disabled>■ STOP</button>
       </div>
       <div class="control-label"><label for="soundboard-volume">Playback volume</label><strong id="soundboard-volume-value">100%</strong></div>
       <input id="soundboard-volume" class="volume" type="range" min="0" max="100" value="100">
@@ -125,6 +125,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js" defer></script>
+  <script src="/static/app.js?v=0.01" defer></script>
 </body>
 </html>

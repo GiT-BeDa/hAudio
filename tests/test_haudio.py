@@ -307,8 +307,11 @@ def test_frontend_is_complete_and_uses_stable_dom_updates(tmp_path):
         assert javascript.status_code == 200
         assert "innerHTML" not in javascript.text
         assert "connectWebSocket" in javascript.text
-        assert 'class="button" type="button" aria-pressed="false">■ STOP' in index.text
+        assert 'aria-pressed="false" disabled>■ STOP' in index.text
+        assert '/static/app.js?v=0.01' in index.text
+        assert '/static/style.css?v=0.01' in index.text
         assert "soundboardStop.classList.toggle('danger', soundboardActive)" in javascript.text
+        assert "soundboardStop.disabled = !soundboardActive" in javascript.text
 
 
 def test_live_status_uses_actual_soundboard_process_state(tmp_path):
@@ -335,3 +338,14 @@ def test_documentation_and_service_use_generic_user_runtime():
     assert "User=" not in service
     assert "pipewire.service" in service
     assert "/api/mic/mute" in api
+
+
+def test_manifest_only_lists_existing_distribution_files():
+    manifest = (PROJECT_ROOT / "MANIFEST.txt").read_text().splitlines()
+    included = manifest[manifest.index("Included:") + 1:manifest.index("Not included:")]
+    paths = [line.strip() for line in included if line.strip()]
+
+    assert "requirements-tested.txt" in paths
+    assert "requirements-dev-tested.txt" in paths
+    assert "tests/frontend.test.js" in paths
+    assert not [path for path in paths if not (PROJECT_ROOT / path).exists()]

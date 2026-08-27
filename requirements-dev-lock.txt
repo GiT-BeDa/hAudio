@@ -1,4 +1,0 @@
-# Tested development baseline for hAudio 0.01 (Python 3.13).
--r requirements-lock.txt
-pytest==8.3.5
-httpx==0.28.1

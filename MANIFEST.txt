@@ -5,8 +5,8 @@ Included:
   VERSION
   requirements.txt
   requirements-dev.txt
-  requirements-lock.txt
-  requirements-dev-lock.txt
+  requirements-tested.txt
+  requirements-dev-tested.txt
   .gitignore
   README.md
   SECURITY.md
@@ -36,6 +36,7 @@ Included:
   docs/API.md
   docs/ARCHITECTURE.md
   tests/test_haudio.py
+  tests/frontend.test.js
   docs/images/WebInterface.png
 
 Not included:
