@@ -13,6 +13,33 @@ hAudio is a permanently running Raspberry Pi audio-routing system. It mixes
 audio from PC1 and PC2 to a wireless headset and routes the headset microphone
 independently to PC1, PC2, both, or neither computer.
 
+## Web interface
+
+The responsive web interface provides independent computer volume and mute
+controls, microphone routing, live level meters, recording management,
+hardware assignment, editable persistent presets, and a soundboard. `MUTE ALL`
+restores the previous mute/routing state when pressed a second time.
+
+![hAudio web interface](docs/images/WebInterface.png)
+
+The screenshot shows the current interface from an example deployment. Device
+names and assignments vary with the connected hardware. Its private LAN address
+has been replaced with the documentation-only example address `192.0.2.10`.
+
+The endpoint reference is available in [docs/API.md](docs/API.md).
+The process and failure-boundary design is described in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Quick installation
+
+For a complete installation, including system packages, writable directory
+ownership, an isolated Python environment, the PipeWire user session, and
+verification, follow [docs/INSTALL.md](docs/INSTALL.md). Do not run PipeWire as
+root or place the backend in a different runtime session from PipeWire.
+
+Open the web interface at `http://<raspberry-pi-address>:8765`. See
+`docs/INSTALL.md` for backups, verification, and recovery details.
+
 ## Signal paths
 
 ~~~text
@@ -59,16 +86,6 @@ can be selected for the headset role.
 
 Runtime state, recordings, credentials, and private SSH keys are not included.
 
-## Quick installation
-
-For a complete installation, including system packages, writable directory
-ownership, an isolated Python environment, the PipeWire user session, and
-verification, follow [docs/INSTALL.md](docs/INSTALL.md). Do not run PipeWire as
-root or place the backend in a different runtime session from PipeWire.
-
-Open the web interface at `http://<raspberry-pi-address>:8765`. See
-`docs/INSTALL.md` for backups, verification, and recovery details.
-
 ## Development and tests
 
 Install runtime and development dependencies with `pip install -r
@@ -84,23 +101,6 @@ pytest -q
 The tests cover atomic persistence, actual PipeWire node discovery, partial
 graphs, microphone and soundboard routing, API route behavior, duplicate
 assignment protection, and the complete static frontend.
-
-## Web interface
-
-The responsive web interface provides independent computer volume and mute
-controls, microphone routing, live level meters, recording management,
-hardware assignment, editable persistent presets, and a soundboard. `MUTE ALL`
-restores the previous mute/routing state when pressed a second time.
-
-![hAudio web interface](docs/images/WebInterface.png)
-
-The screenshot shows the current interface from an example deployment. Device
-names and assignments vary with the connected hardware. Its private LAN address
-has been replaced with the documentation-only example address `192.0.2.10`.
-
-The endpoint reference is available in [docs/API.md](docs/API.md).
-The process and failure-boundary design is described in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Related projects
 
