@@ -96,6 +96,11 @@ depending on the hardware connected to the Raspberry Pi.
 
 The endpoint reference is available in [docs/API.md](docs/API.md).
 
+## Related projects
+
+If you like hAudio, check also [deskhop](https://github.com/hrvach/deskhop),
+an open-source project for sharing keyboard, mouse, and display control.
+
 ## Recording and soundboard
 
 The web interface provides one combined recording containing headset output and
