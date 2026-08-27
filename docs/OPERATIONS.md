@@ -39,13 +39,13 @@ Recordings are started under “Recordings”. Each file is a segmented Opus fil
 containing headset output and microphone. A recording failure must not stop
 audio routing; details are written to the journal.
 
-The web interface is available at http://<raspberry-pi-address>:8765. Its layout is:
+The web interface is available at `http://<raspberry-pi-address>:8765`. Its layout is:
 
 1. PC1 and PC2
 2. Headset and microphone
 3. Recordings and soundboard
 4. System status in the footer
 
-MP3 files are stored in /data/haudio/soundboard/. Playback is sent to the
+MP3 files are stored in `/data/haudio/soundboard/`. Playback is sent to the
 headset and non-muted computer outputs. Starting a new file stops the previous
 one.

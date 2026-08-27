@@ -1,7 +1,9 @@
 # hAudio HTTP API
 
 The control API is served by the same FastAPI process as the web interface.
-The default base URL is `http://<raspberry-pi-address>:8765`.
+The default base URL is `http://<raspberry-pi-address>:8765`. Replace the
+placeholder with the Pi's current LAN address; do not include the angle
+brackets in the actual URL.
 
 All state-changing endpoints use `POST` with a JSON body unless noted
 otherwise. Successful responses contain the current state returned by
@@ -84,3 +86,6 @@ Example:
 
 The API currently has no authentication or HTTPS. Expose it only to a trusted
 local network until access control and TLS are added.
+
+For `{name}` and `{path}`, URL-encode special characters before placing them
+in the request URL. For example, a space becomes `%20`.

@@ -53,8 +53,8 @@ Runtime state, recordings, credentials, and private SSH keys are not included.
 ## Quick installation
 
 On a Raspberry Pi running Raspberry Pi OS or Debian, create the `haudio` service
-user and install the required system packages (PipeWire, FFmpeg, Python 3,
-FastAPI, and Uvicorn). Then copy the files from this repository:
+user and install the required system packages (PipeWire, WirePlumber, FFmpeg,
+Python 3, FastAPI, and Uvicorn). Then copy the files from this repository:
 
 ~~~bash
 sudo install -d /opt/haudio
@@ -115,11 +115,11 @@ persistently and the audio graph is rebuilt from the selected PipeWire cards.
 
 ## Current operation
 
-- Web interface: http://<raspberry-pi-address>:8765
-- Service: haudio-control.service
-- Service user: haudio
-- PipeWire runtime: /run/user/<service-uid>
-- Logs: journalctl -u haudio-control.service -f
+- Web interface: `http://<raspberry-pi-address>:8765`
+- Service: `haudio-control.service`
+- Service user: `haudio`
+- PipeWire runtime: `/run/user/<service-uid>`
+- Logs: `journalctl -u haudio-control.service -f`
 
 Audio processing runs independently of the browser. USB capture gain is reset
 to a safe level during startup and device recovery to prevent clipping.

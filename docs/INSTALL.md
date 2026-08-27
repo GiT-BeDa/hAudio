@@ -1,7 +1,7 @@
 # Install or restore hAudio
 
-These commands assume Raspberry Pi OS/Debian, the haudio user, and a
-PipeWire PulseAudio-compatible interface.
+These commands assume Raspberry Pi OS/Debian, a dedicated `haudio` service
+user, and a PipeWire PulseAudio-compatible interface.
 
 ## Hardware examples
 
@@ -18,7 +18,17 @@ as well. As an Amazon Associate I earn from qualifying purchases.
 Install the Python dependencies before starting the service:
 
 ~~~bash
+sudo apt update
+sudo apt install pipewire pipewire-pulse wireplumber ffmpeg python3 python3-pip
 python3 -m pip install -r requirements.txt
+~~~
+
+The service unit runs as the unprivileged `haudio` user. Create that user and
+grant it access to the audio devices before enabling the service, if it does
+not already exist:
+
+~~~bash
+sudo useradd --system --create-home --groups audio,video haudio
 ~~~
 
 ## Copy files
@@ -50,4 +60,5 @@ runuser -u haudio -- pactl list cards
 ~~~
 
 The application may need several seconds after startup for device
-initialization.
+initialization. Replace `<raspberry-pi-address>` with the Pi's current LAN
+address when opening the web interface: `http://<raspberry-pi-address>:8765`.
