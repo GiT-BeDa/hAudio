@@ -19,7 +19,7 @@ physical USB path, not by ALSA card number or changing USB device number.
 ## Services and endpoints
 
 ~~~text
-haudio-control.service: enabled, active
+haudio-control.service: enabled, active in the PipeWire user manager
 Web interface/API:      0.0.0.0:8765
 PipeWire quantum:       deployment-specific
 Audio sample rate:      48000 Hz (default)
@@ -27,18 +27,19 @@ Audio sample rate:      48000 Hz (default)
 
 ## Persistence
 
-- Backend: `/opt/haudio/haudio_main.py`
+- Backend: `/opt/haudio/haudio_main.py` and `/opt/haudio/haudio/`
 - Frontend: `/opt/haudio/frontend/`
 - Runtime state: `/var/lib/haudio/state.json`
 - Recordings: `/data/haudio/recordings/`
 - PipeWire configuration: `/home/haudio/.config/pipewire/pipewire.conf.d/`
-- Service: `/etc/systemd/system/haudio-control.service`
+- Service: `/home/haudio/.config/systemd/user/haudio-control.service`
+- Configuration: `/etc/haudio/haudio.json`
 
 ## USB changes
 
-The backend monitors PipeWire devices. Missing sources, sinks, or hAudio
-loopbacks cause the graph to be rebuilt. USB capture gain is reset to a safe
-level during recovery.
+The backend monitors PipeWire devices. Missing or stale hAudio links are
+reconciled individually while healthy links remain untouched. Device nodes are
+read from PipeWire instead of being constructed from assumed profile names.
 
 ## Limitation
 

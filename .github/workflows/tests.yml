@@ -1,0 +1,29 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-dev-lock.txt
+      - name: Compile Python
+        run: python -m compileall -q opt/haudio
+      - name: Check JavaScript syntax
+        run: node --check opt/haudio/frontend/app.js
+      - name: Run tests
+        run: pytest -q

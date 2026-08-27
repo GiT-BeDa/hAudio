@@ -10,6 +10,11 @@ Do not expose the port directly to the internet or forward it from a router.
 Use a firewall, VPN, or an SSH tunnel when access outside the trusted LAN is
 needed. Recordings and soundboard files should be treated as private data.
 
+Browser WebSocket connections are restricted to the same host as the web
+interface, uploaded files are size-limited and validated as MP3 audio, and
+filenames are confined to their configured storage directories. These checks
+do not replace authentication for untrusted networks.
+
 ## Reporting a vulnerability
 
 Please report security issues privately to the repository maintainer before

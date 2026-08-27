@@ -1,4 +1,120 @@
-<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>hAudio 0.01</title><link rel="stylesheet" href="/static/style.css">
-<h1>hAudio <span class="online">● ONLINE</span></h1><main id="app"></main><section class="card" id="soundboard-panel"><h2>SOUNDBOARD</h2><div id="soundboard-content"></div></section><script src="/static/app.js" defer></script>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1220">
+  <title>hAudio 0.01</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="page-header">
+    <div>
+      <h1>hAudio</h1>
+      <p class="author">Peter Grunert · <a href="https://www.bk99.de" target="_blank" rel="noopener">bk99.de</a></p>
+    </div>
+    <div id="connection-status" class="connection connecting" role="status">● CONNECTING</div>
+  </header>
 
+  <div id="error-banner" class="error-banner" role="alert" hidden></div>
 
+  <nav class="preset-bar" aria-label="Audio presets">
+    <span>PRESETS</span>
+    <button class="button" type="button" data-preset="normal">NORMAL</button>
+    <button class="button" type="button" data-preset="pc1-only">PC1 ONLY</button>
+    <button class="button" type="button" data-preset="pc2-only">PC2 ONLY</button>
+    <button class="button" type="button" data-preset="meeting">MEETING</button>
+    <button class="button danger" type="button" data-preset="mute-all">MUTE ALL</button>
+  </nav>
+
+  <main>
+    <div class="two-column">
+      <section class="card" data-device="pc1">
+        <div class="card-title"><h2>COMPUTER 1</h2><span id="pc1-state" class="device-state off">● DISCONNECTED</span></div>
+        <div class="control-label"><label for="pc1-volume">Volume</label><strong id="pc1-volume-value">0%</strong></div>
+        <input id="pc1-volume" class="volume" type="range" min="0" max="100" value="0">
+        <div class="meter" aria-label="Computer 1 level"><i id="pc1-meter"></i></div>
+        <div class="meter-value" id="pc1-level">−60.0 dB</div>
+        <button id="pc1-mute" class="button" type="button">MUTE</button>
+        <div class="assignment"><label for="pc1-device">Audio interface</label><select id="pc1-device" data-role="pc1"></select></div>
+      </section>
+
+      <section class="card" data-device="pc2">
+        <div class="card-title"><h2>COMPUTER 2</h2><span id="pc2-state" class="device-state off">● DISCONNECTED</span></div>
+        <div class="control-label"><label for="pc2-volume">Volume</label><strong id="pc2-volume-value">0%</strong></div>
+        <input id="pc2-volume" class="volume" type="range" min="0" max="100" value="0">
+        <div class="meter" aria-label="Computer 2 level"><i id="pc2-meter"></i></div>
+        <div class="meter-value" id="pc2-level">−60.0 dB</div>
+        <button id="pc2-mute" class="button" type="button">MUTE</button>
+        <div class="assignment"><label for="pc2-device">Audio interface</label><select id="pc2-device" data-role="pc2"></select></div>
+      </section>
+    </div>
+
+    <section class="card headset-card">
+      <div class="headset-grid">
+        <div>
+          <div class="card-title"><h2>HEADSET</h2><span id="headset-state" class="device-state off">● DISCONNECTED</span></div>
+          <div class="control-label"><label for="headset-volume">Volume</label><strong id="headset-volume-value">0%</strong></div>
+          <input id="headset-volume" class="volume" type="range" min="0" max="100" value="0">
+          <div class="meter"><i id="headset-meter"></i></div>
+          <div class="meter-value" id="headset-level">−60.0 dB</div>
+        </div>
+        <div class="microphone-panel">
+          <div class="card-title"><h2>MICROPHONE</h2><span id="microphone-state" class="device-state off">● DISCONNECTED</span></div>
+          <div class="control-label"><label for="mic-volume">Volume</label><strong id="mic-volume-value">0%</strong></div>
+          <input id="mic-volume" class="volume" type="range" min="0" max="100" value="0">
+          <div class="meter"><i id="microphone-meter"></i></div>
+          <div class="meter-value" id="microphone-level">−60.0 dB</div>
+          <div class="button-row">
+            <button id="mic-mute" class="button" type="button">MIC MUTE</button>
+            <button id="mic-pc1" class="button" type="button">PC1 OFF</button>
+            <button id="mic-pc2" class="button" type="button">PC2 OFF</button>
+          </div>
+        </div>
+      </div>
+      <div class="assignment"><label for="headset-device">Headset and microphone interface</label><select id="headset-device" data-role="headset"></select></div>
+    </section>
+
+    <section class="card recordings-card">
+      <div class="card-title">
+        <div><h2>RECORDINGS</h2><p>Headset output and microphone in one segmented Opus file.</p></div>
+        <button id="recording-toggle" class="button primary" type="button">START RECORDING</button>
+      </div>
+      <div id="recording-indicator" class="recording-indicator inactive">○ NOT RECORDING</div>
+      <div id="recording-list" class="file-list"></div>
+    </section>
+
+    <section class="card soundboard-card">
+      <div class="card-title">
+        <div><h2>SOUNDBOARD</h2><p>Playback goes to the headset and active microphone routes.</p></div>
+        <button id="soundboard-stop" class="button danger" type="button">■ STOP</button>
+      </div>
+      <div class="control-label"><label for="soundboard-volume">Playback volume</label><strong id="soundboard-volume-value">100%</strong></div>
+      <input id="soundboard-volume" class="volume" type="range" min="0" max="100" value="100">
+      <div class="upload-row">
+        <label class="button upload-button" for="sound-upload">＋ UPLOAD MP3</label>
+        <input id="sound-upload" type="file" accept="audio/mpeg,.mp3" hidden>
+        <span id="soundboard-status" role="status"></span>
+      </div>
+      <div id="soundboard-list" class="file-list"></div>
+    </section>
+  </main>
+
+  <footer class="system-footer">
+    <div class="card-title"><h2>SYSTEM STATUS</h2><span id="graph-state" class="device-state off">● AUDIO GRAPH UNKNOWN</span></div>
+    <div id="system-errors" class="system-errors" hidden></div>
+    <div class="metrics">
+      <div class="metric">PipeWire<strong id="system-pipewire">–</strong></div>
+      <div class="metric">Free storage<strong id="system-disk">–</strong></div>
+      <div class="metric">Load average<strong id="system-load">–</strong></div>
+      <div class="metric">RAM used<strong id="system-ram">–</strong></div>
+      <div class="metric">Temperature<strong id="system-temperature">–</strong></div>
+      <div class="metric">Uptime<strong id="system-uptime">–</strong></div>
+      <div class="metric">Network<strong id="system-network">–</strong></div>
+      <div class="metric">Wi-Fi signal<strong id="system-wifi">–</strong></div>
+    </div>
+  </footer>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

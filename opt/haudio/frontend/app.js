@@ -1,27 +1,445 @@
-let s={},files=[],soundFiles=[],volumeTimers={},soundboardBusy=false,soundboardBusyLabel='';
-const app=document.getElementById('app');
-document.querySelector('h1').insertAdjacentHTML('beforeend','<small style="display:block;margin-left:auto;margin-right:18px;font-size:12px;font-weight:500;color:#9fb0c7">Author: Peter Grunert · <a href="https://www.bk99.de" target="_blank" rel="noopener" style="color:#60a5fa">bk99.de</a></small>');
-function rangeIsFocused(){let e=document.activeElement;return e&&e.tagName==='INPUT'&&e.type==='range'}
-async function api(u,o){let keepRange=rangeIsFocused();let res=await fetch('/api/'+u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o||{})});if(res.ok){s=await res.json();if(!keepRange)draw()}if(u.startsWith('recording/'))loadFiles()}
-function setVolume(k,v){let el=document.getElementById(k+'-volume');if(el)el.textContent=v+'%';clearTimeout(volumeTimers[k]);volumeTimers[k]=setTimeout(()=>api(k+'/volume',{value:v}),180)}
-function setMicVolume(v){let el=document.getElementById('microphone-volume');if(el)el.textContent=v+'%';clearTimeout(volumeTimers.microphone);volumeTimers.microphone=setTimeout(()=>api('mic/volume',{value:v}),180)}
-function setSoundboardVolume(v){let el=document.getElementById('soundboard-volume');if(el)el.textContent=v+'%';clearTimeout(volumeTimers.soundboard);volumeTimers.soundboard=setTimeout(()=>api('soundboard/volume',{value:v}),180)}
-function meterWidth(k){let db=(s.levels||{})[k];return Math.max(0,Math.min(100,((db==null?-60:db)+60)*100/60))}
-async function assignDevice(role,id){let res=await fetch('/api/devices/assign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role,card_id:id})});if(res.ok){let d=await res.json();s.devices=d;draw()}}
-async function loadFiles(){try{let a=await fetch('/api/recordings'),b=await fetch('/api/soundboard');files=await a.json();let sb=await b.json();soundFiles=sb.files||[];s.soundboard=sb;draw();drawSoundboard()}catch(e){}}
-function drawSoundboard(){let e=document.getElementById('soundboard-content');if(!e)return;e.innerHTML=`<div class=row><label>MP3 hochladen<input type=file accept="audio/mpeg,.mp3" onchange="soundUpload(this)"></label><button onclick="soundAction('stop')" class=danger>STOPP</button></div><p class=small>Wiedergabe an Headset und alle nicht stummgeschalteten Computer-Ausgänge.</p>${soundFiles.length?soundFiles.map(f=>`<div class="record file-record"><div>${f.name}<small class=small> ${(f.size/1048576).toFixed(1)} MB</small></div><div class=file-actions><button class=on onclick="soundAction('${encodeURIComponent(f.name)}/play')">ABSPIELEN</button><a href="/api/soundboard/${encodeURIComponent(f.name)}" download><button>DOWNLOAD</button></a><button onclick="soundRename(decodeURIComponent('${encodeURIComponent(f.name)}'))">UMBENENNEN</button><button class=danger onclick="soundDelete(decodeURIComponent('${encodeURIComponent(f.name)}'))">LÖSCHEN</button></div></div>`).join(''):'<p class=small>Noch keine MP3-Dateien vorhanden.</p>'}`}
-const _drawSoundboard=drawSoundboard;drawSoundboard=function(){_drawSoundboard();let labels={'ABSPIELEN':['▶','Play'],'DOWNLOAD':['⇩','Download'],'UMBENENNEN':['✎','Rename'],'LÖSCHEN':['🗑','Delete']};document.querySelectorAll('#soundboard-content .file-actions button').forEach(b=>{let label=b.textContent.trim();if(labels[label]){b.textContent=labels[label][0];b.title=labels[label][1];b.setAttribute('aria-label',labels[label][1]);if(soundboardBusy&&label==='ABSPIELEN')b.disabled=true}});let e=document.getElementById('soundboard-content');if(e&&soundboardBusy){let p=document.createElement('p');p.className='soundboard-status';p.textContent=soundboardBusyLabel;e.insertBefore(p,e.firstChild)}}
-const _drawSoundboardWithVolume=drawSoundboard;drawSoundboard=function(){_drawSoundboardWithVolume();let e=document.getElementById('soundboard-content');if(!e)return;let v=s.soundboard&&s.soundboard.volume!=null?s.soundboard.volume:100;let row=document.createElement('div');row.className='row';row.innerHTML='<span>Soundboard volume</span><b id="soundboard-volume">'+v+'%</b>';let slider=document.createElement('input');slider.type='range';slider.min='0';slider.max='100';slider.value=v;slider.setAttribute('aria-label','Soundboard volume');slider.oninput=()=>setSoundboardVolume(+slider.value);let first=e.firstElementChild;if(first)e.insertBefore(row,first);else e.appendChild(row);if(row.nextSibling)e.insertBefore(slider,row.nextSibling);else e.appendChild(slider)}
-async function soundUpload(input){if(!input.files.length)return;let fd=new FormData();fd.append('file',input.files[0]);let r=await fetch('/api/soundboard/upload',{method:'POST',body:fd});if(r.ok){input.value='';loadFiles()}}
-async function soundAction(u){soundboardBusy=true;soundboardBusyLabel=u==='stop'?'Stopping playback…':'Starting playback…';drawSoundboard();try{let r=await fetch('/api/soundboard/'+u,{method:'POST'});if(r.ok){let sb=await r.json();s.soundboard=sb}}finally{soundboardBusy=false;soundboardBusyLabel='';loadFiles()}}
-async function soundRename(n){let v=prompt('New MP3 filename:',n);if(v){await fetch('/api/soundboard/'+encodeURIComponent(n)+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:v})});loadFiles()}}
-async function soundDelete(n){if(confirm('Delete this sound?')){await fetch('/api/soundboard/'+encodeURIComponent(n),{method:'DELETE'});loadFiles()}}
-async function renameFile(p,n){let name=prompt('New filename (.opus):',n);if(name){await fetch('/api/recordings/'+encodeURIComponent(p)+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});loadFiles()}}
-async function deleteFile(p){if(confirm('Delete this recording?')){await fetch('/api/recordings/'+encodeURIComponent(p),{method:'DELETE'});loadFiles()}}
-function device(k,n,muteApi){let x=s[k]||{};return `<section class=card><h2>${n}</h2><div class="${x.connected?'state':'off'}">● ${x.connected?'VERBUNDEN':'GETRENNT'}</div><div class=row><span>Lautstärke</span><b id="${k}-volume">${x.volume||0}%</b></div><input type=range min=0 max=100 value=${x.volume||0} oninput="setVolume('${k}',+this.value)"><div class=meter></div>${muteApi?`<button class="${x.mute?'danger':''}" onclick="api('${k}/mute',{value:!s['${k}'].mute})">${x.mute?'STUMM GESCHALTET':'MUTE'}</button>`:''}</section>`}
-function attachRoutingControls(){let d=s.devices||{cards:[],selected:{}},cards=d.cards||[],opts='<option value="">NICHT ZUGEORDNET</option>'+cards.map(c=>'<option value="'+c.id+'">'+c.product+' · '+c.bus_path+'</option>').join(''),rows=app.querySelectorAll('.layout-row');let pc=rows[0]&&rows[0].querySelectorAll('.card');['pc1','pc2'].forEach((role,i)=>{let c=pc&&pc[i];if(!c)return;let q=document.createElement('div');q.className='assignment';q.innerHTML='<label>Soundkarte<select data-role="'+role+'">'+opts+'</select></label>';c.appendChild(q);q.querySelector('select').value=d.selected[role]||'';q.querySelector('select').onchange=()=>assignDevice(role,q.querySelector('select').value)});let second=rows[1],cs=second&&second.querySelectorAll('.card');if(cs&&cs.length>1){let headset=cs[0],mic=cs[1];headset.style.gridColumn='1/-1';let sep=document.createElement('hr');headset.appendChild(sep);while(mic.firstChild)headset.appendChild(mic.firstChild);mic.remove();let mv=document.createElement('div');mv.innerHTML='<div class=row><span>Mikrofon-Lautstärke</span><b id="microphone-volume">'+(s.microphone&&s.microphone.volume||0)+'%</b></div><input type="range" min="0" max="100" value="'+(s.microphone&&s.microphone.volume||0)+'" oninput="setMicVolume(+this.value)">';headset.appendChild(mv);let q=document.createElement('div');q.className='assignment';q.innerHTML='<label>Headset und Mikrofon<select data-role="headset">'+opts+'</select></label>';headset.appendChild(q);q.querySelector('select').value=d.selected.headset||'';q.querySelector('select').onchange=()=>assignDevice('headset',q.querySelector('select').value)}
-const _attachRoutingControls=attachRoutingControls;attachRoutingControls=function(){_attachRoutingControls();let meters=app.querySelectorAll('.meter');let volume=document.getElementById('microphone-volume');let micMeter=meters[3];if(volume&&micMeter){let row=volume.parentElement;let slider=row.nextElementSibling;if(slider&&slider.tagName==='INPUT'){micMeter.parentNode.insertBefore(row,micMeter);micMeter.parentNode.insertBefore(slider,micMeter)}}}
-let meters=app.querySelectorAll('.meter'),meterKeys=['pc1','pc2','headset','microphone'];meterKeys.forEach((key,i)=>{let meter=meters[i];if(meter){meter.innerHTML='<i style="display:block;height:100%;border-radius:5px;background:#38bdf8;width:'+meterWidth(key)+'%"></i>';meter.title=(s.levels&&s.levels[key]!=null?s.levels[key]:'-')+' dB'}});for(let c of app.querySelectorAll('.card')){let h=c.querySelector('h2');if(h&&h.textContent==='GERÄTEZUORDNUNG')c.parentElement.remove()}}
-function draw(){if(document.activeElement&&document.activeElement.tagName==='INPUT'&&document.activeElement.type==='range')return;let panel=document.getElementById('soundboard-panel');if(panel&&panel.parentElement===app)document.body.appendChild(panel);render();attachRoutingControls();panel=document.getElementById('soundboard-panel');let footer=document.querySelector('.system-footer');if(panel&&footer)footer.parentNode.insertBefore(panel,footer);drawSoundboard()}
-function translateUi(){let map={'Lautstärke':'Volume','VERBUNDEN':'CONNECTED','GETRENNT':'DISCONNECTED','STUMM GESCHALTET':'MUTED','MIC STUMM':'MIC MUTED','AKTIV':'ACTIVE','AUS':'OFF','AUFNAHMEN VERWALTEN':'RECORDINGS','Headset-Ausgabe + Mikrofon in einer Datei':'Headset output + microphone in one file','AUFNAHME STOPPEN':'STOP RECORDING','AUFNAHME STARTEN':'START RECORDING','Eine segmentierte Opus-Datei · browserunabhängig':'Segmented Opus file · browser-independent','GERÄTEZUORDNUNG':'DEVICE ASSIGNMENT','Wähle die aktuell angeschlossene USB-Audiokarte für jede Funktion. Änderungen werden gespeichert und das Routing wird neu aufgebaut.':'Assign the currently connected USB audio card to each function. Changes are saved and the audio graph is rebuilt.','Soundkarte':'Audio card','Headset und Mikrofon':'Headset and microphone','NICHT ZUGEORDNET':'UNASSIGNED','MP3 hochladen':'Upload MP3','STOPP':'STOP','Wiedergabe an Headset und alle nicht stummgeschalteten Computer-Ausgänge.':'Playback to the headset and all non-muted computer outputs.','Noch keine MP3-Dateien vorhanden.':'No MP3 files yet.','Keine Aufnahmen vorhanden.':'No recordings available.','SYSTEMSTATUS':'SYSTEM STATUS','läuft':'running','FEHLER':'ERROR','Speicher frei':'Free storage','CPU-Last':'CPU load','RAM genutzt':'RAM used','Temperatur':'Temperature','Uptime':'Uptime'};let w=document.createTreeWalker(app,NodeFilter.SHOW_TEXT);let n;while(n=w.nextNode()){let t=n.nodeValue.trim();if(map[t])n.nodeValue=n.nodeValue.replace(t,map[t])}}
-setTimeout(()=>{try{draw()}catch(e){}},0);function render(){let m=s.microphone||{},r=s.recording||{},z=s.system||{},d=s.devices||{cards:[],selected:{}},active=!!r.session;let choices=d.cards.map(c=>`<option value="${c.id}">${c.product} · ${c.bus_path}</option>`).join('');app.innerHTML=`<div class="layout-row">${device('pc1','COMPUTER 1',true)}${device('pc2','COMPUTER 2',true)}</div><div class="layout-row">${device('headset','HEADSET',false)}<section class=card><h2>MICROPHONE</h2><div class="${m.connected?'state':'off'}">● ${m.connected?'VERBUNDEN':'GETRENNT'}</div><div class=meter></div><button class="${m.mute?'danger':''}" onclick="api('mic/mute',{value:!s.microphone.mute})">${m.mute?'MIC STUMM':'MIC MUTE'}</button><div class=row><span>PC1</span><button class="${m.route_pc1?'on':''}" onclick="api('mic/route/pc1',{value:!s.microphone.route_pc1})">${m.route_pc1?'AKTIV':'AUS'}</button></div><div class=row><span>PC2</span><button class="${m.route_pc2?'on':''}" onclick="api('mic/route/pc2',{value:!s.microphone.route_pc2})">${m.route_pc2?'AKTIV':'AUS'}</button></div></section></div><div class="layout-row"><section class=card style="grid-column:1/-1"><h2>AUFNAHMEN VERWALTEN</h2><div class=row><span>Headset-Ausgabe + Mikrofon in einer Datei</span><button class="${active?'danger':'on'}" onclick="api('recording/toggle')">${active?'● AUFNAHME STOPPEN':'○ AUFNAHME STARTEN'}</button></div><p class=small>Eine segmentierte Opus-Datei · browserunabhängig</p>${files.length?files.map(f=>`<div class="record file-record"><div title="${f.path}">${f.name}<small class=small> ${(f.size/1048576).toFixed(1)} MB</small></div><div class=file-actions><a href="/api/recordings/${encodeURIComponent(f.path)}" download><button>DOWNLOAD</button></a><button onclick="renameFile('${f.path}','${f.name}')">UMBENENNEN</button><button class=danger onclick="deleteFile('${f.path}')">LÖSCHEN</button></div></div>`).join(''):'<p class=small>Keine Aufnahmen vorhanden.</p>'}</section></div><div class="layout-row"><section class=card style="grid-column:1/-1"><h2>GERÄTEZUORDNUNG</h2><p class=small>Wähle die aktuell angeschlossene USB-Audiokarte für jede Funktion. Änderungen werden gespeichert und das Routing wird neu aufgebaut.</p><div class=row><label>COMPUTER 1<select onchange="assignDevice('pc1',this.value)">${choices}</select></label><label>COMPUTER 2<select onchange="assignDevice('pc2',this.value)">${choices}</select></label><label>HEADSET + MICROPHONE<select onchange="assignDevice('headset',this.value)">${choices}</select></label></div></section></div><footer class=system-footer><h2>SYSTEMSTATUS</h2><div class=system><div class=metric>PipeWire<span class=value>${z.pipewire?'● läuft':'● FEHLER'}</span></div><div class=metric>Speicher frei<span class=value>${z.disk_free_gb??'-'} GB</span></div><div class=metric>CPU-Last<span class=value>${z.cpu_load??'-'}</span></div><div class=metric>RAM genutzt<span class=value>${z.ram_used_percent??'-'} %</span></div><div class=metric>Temperatur<span class=value>${z.temperature_c??'-'} °C</span></div><div class=metric>Uptime<span class=value>${z.uptime_seconds?Math.floor(z.uptime_seconds/3600)+' h':'-'}</span></div></div></footer>`;for(let role of ['pc1','pc2','headset']){let el=document.querySelector(`select[onchange="assignDevice('${role}',this.value)"]`);if(el&&d.selected[role])el.value=d.selected[role]}}let ws=new WebSocket(`ws://${location.host}/ws`);ws.onmessage=e=>{if(document.activeElement&&document.activeElement.tagName==='SELECT')return;s=JSON.parse(e.data);draw()};loadFiles();
+'use strict';
+
+const ui = {
+  state: {},
+  recordings: [],
+  sounds: [],
+  pendingVolumes: new Set(),
+  volumeTimers: new Map(),
+  volumeSequences: new Map(),
+  deviceSignature: '',
+  socket: null,
+  reconnectDelay: 1000,
+  fallbackTimer: null,
+};
+
+const byId = (id) => document.getElementById(id);
+
+function showError(message) {
+  const banner = byId('error-banner');
+  banner.textContent = message;
+  banner.hidden = false;
+}
+
+function clearError() {
+  byId('error-banner').hidden = true;
+}
+
+async function request(path, options = {}) {
+  const response = await fetch(path, options);
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_) {
+    payload = null;
+  }
+  if (!response.ok) {
+    const message = payload?.detail || `${response.status} ${response.statusText}`;
+    showError(message);
+    throw new Error(message);
+  }
+  clearError();
+  return payload;
+}
+
+function post(path, body = {}) {
+  return request(path, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+}
+
+function setConnection(connected, label = '') {
+  const element = byId('connection-status');
+  element.className = `connection ${connected ? 'online' : 'offline'}`;
+  element.textContent = connected ? '● ONLINE' : `● ${label || 'OFFLINE'}`;
+}
+
+function setDeviceState(name, connected) {
+  const element = byId(`${name}-state`);
+  element.className = `device-state ${connected ? 'on' : 'off'}`;
+  element.textContent = connected ? '● CONNECTED' : '● DISCONNECTED';
+}
+
+function setButton(button, active, activeText, inactiveText, activeClass = 'active') {
+  button.classList.toggle(activeClass, active);
+  button.textContent = active ? activeText : inactiveText;
+  button.setAttribute('aria-pressed', String(active));
+}
+
+function meterPercent(decibels) {
+  const value = Number.isFinite(decibels) ? decibels : -60;
+  return Math.max(0, Math.min(100, ((value + 60) / 60) * 100));
+}
+
+function updateMeter(name, decibels) {
+  const value = Number.isFinite(decibels) ? decibels : -60;
+  byId(`${name}-meter`).style.width = `${meterPercent(value)}%`;
+  byId(`${name}-level`).textContent = `${value.toFixed(1)} dB`;
+}
+
+function updateVolume(name, value) {
+  byId(`${name}-volume-value`).textContent = `${value}%`;
+  const slider = byId(`${name}-volume`);
+  if (document.activeElement !== slider && !ui.pendingVolumes.has(name)) {
+    slider.value = value;
+  }
+}
+
+function updateDevices(devices) {
+  if (!devices) return;
+  const signature = JSON.stringify({cards: devices.cards, selected: devices.selected});
+  if (signature === ui.deviceSignature) return;
+  if (document.activeElement?.matches('select[data-role]')) return;
+  ui.deviceSignature = signature;
+  for (const role of ['pc1', 'pc2', 'headset']) {
+    const select = byId(`${role}-device`);
+    if (document.activeElement === select) continue;
+    const fragment = document.createDocumentFragment();
+    const unassigned = document.createElement('option');
+    unassigned.value = '';
+    unassigned.textContent = 'UNASSIGNED';
+    fragment.appendChild(unassigned);
+    for (const card of devices.cards || []) {
+      const option = document.createElement('option');
+      option.value = card.id;
+      const capabilities = `${card.has_input ? 'input' : 'no input'}, ${card.has_output ? 'output' : 'no output'}`;
+      option.textContent = `${card.product} · ${card.bus_path} (${capabilities})`;
+      fragment.appendChild(option);
+    }
+    select.replaceChildren(fragment);
+    select.value = devices.selected?.[role] || '';
+  }
+}
+
+function formatUptime(seconds) {
+  if (!Number.isFinite(seconds)) return '–';
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  return days ? `${days} d ${hours} h` : `${hours} h`;
+}
+
+function applyStatus(status) {
+  if (!status) return;
+  ui.state = status;
+  setConnection(true);
+
+  for (const name of ['pc1', 'pc2', 'headset']) {
+    const device = status[name] || {};
+    setDeviceState(name, Boolean(device.connected));
+    updateVolume(name, device.volume ?? 0);
+  }
+  const microphone = status.microphone || {};
+  setDeviceState('microphone', Boolean(microphone.connected));
+  updateVolume('mic', microphone.volume ?? 0);
+  updateVolume('soundboard', status.soundboard?.volume ?? 100);
+
+  setButton(byId('pc1-mute'), Boolean(status.pc1?.mute), 'MUTED', 'MUTE', 'danger');
+  setButton(byId('pc2-mute'), Boolean(status.pc2?.mute), 'MUTED', 'MUTE', 'danger');
+  setButton(byId('mic-mute'), Boolean(microphone.mute), 'MIC MUTED', 'MIC MUTE', 'danger');
+  setButton(byId('mic-pc1'), Boolean(microphone.route_pc1), 'PC1 ACTIVE', 'PC1 OFF');
+  setButton(byId('mic-pc2'), Boolean(microphone.route_pc2), 'PC2 ACTIVE', 'PC2 OFF');
+
+  const levels = status.levels || {};
+  updateMeter('pc1', levels.pc1);
+  updateMeter('pc2', levels.pc2);
+  updateMeter('headset', levels.headset);
+  updateMeter('microphone', levels.microphone);
+
+  const recording = Boolean(status.recording?.session);
+  setButton(byId('recording-toggle'), recording, 'STOP RECORDING', 'START RECORDING', 'danger');
+  const recordingIndicator = byId('recording-indicator');
+  recordingIndicator.className = `recording-indicator ${recording ? 'active' : 'inactive'}`;
+  recordingIndicator.textContent = recording ? '● RECORDING ACTIVE' : '○ NOT RECORDING';
+
+  const playing = status.soundboard?.active ? status.soundboard.playing : '';
+  byId('soundboard-status').textContent = playing ? `Playing: ${playing}` : '';
+  updateDevices(status.devices);
+
+  const system = status.system || {};
+  byId('system-pipewire').textContent = system.pipewire ? '● RUNNING' : '● ERROR';
+  byId('system-disk').textContent = Number.isFinite(system.disk_free_gb) ? `${system.disk_free_gb} GB` : '–';
+  byId('system-load').textContent = Number.isFinite(system.cpu_load) ? system.cpu_load : '–';
+  byId('system-ram').textContent = Number.isFinite(system.ram_used_percent) ? `${system.ram_used_percent}%` : '–';
+  byId('system-temperature').textContent = Number.isFinite(system.temperature_c) ? `${system.temperature_c} °C` : '–';
+  byId('system-uptime').textContent = formatUptime(system.uptime_seconds);
+  byId('system-network').textContent = [system.network_interface, ...(system.ip_addresses || [])].filter(Boolean).join(' · ') || '–';
+  byId('system-wifi').textContent = Number.isFinite(system.wlan_signal_dbm) ? `${system.wlan_signal_dbm} dBm` : '–';
+  const graph = byId('graph-state');
+  graph.className = `device-state ${system.graph_ready ? 'on' : 'off'}`;
+  graph.textContent = system.graph_ready ? '● AUDIO GRAPH READY' : '● AUDIO GRAPH DEGRADED';
+  const errors = byId('system-errors');
+  errors.hidden = !(status.errors || []).length;
+  errors.textContent = (status.errors || []).join(' · ');
+}
+
+function queueVolume(name, value) {
+  byId(`${name}-volume-value`).textContent = `${value}%`;
+  ui.pendingVolumes.add(name);
+  clearTimeout(ui.volumeTimers.get(name));
+  const sequence = (ui.volumeSequences.get(name) || 0) + 1;
+  ui.volumeSequences.set(name, sequence);
+  ui.volumeTimers.set(name, setTimeout(async () => {
+    try {
+      const status = await post(`/api/${name}/volume`, {value: Number(value)});
+      if (ui.volumeSequences.get(name) === sequence) applyStatus(status);
+    } catch (_) {
+      await refreshStatus();
+    } finally {
+      if (ui.volumeSequences.get(name) === sequence) ui.pendingVolumes.delete(name);
+    }
+  }, 180));
+}
+
+async function refreshStatus() {
+  try {
+    applyStatus(await request('/api/status'));
+  } catch (_) {
+    setConnection(false);
+  }
+}
+
+async function assignDevice(role, cardId) {
+  const select = byId(`${role}-device`);
+  select.disabled = true;
+  try {
+    await post('/api/devices/assign', {role, card_id: cardId});
+    ui.deviceSignature = '';
+    await refreshStatus();
+  } finally {
+    select.disabled = false;
+  }
+}
+
+function fileSize(bytes) {
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+function iconButton(symbol, label, className = '') {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `icon-button ${className}`.trim();
+  button.textContent = symbol;
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  return button;
+}
+
+function downloadLink(url, label) {
+  const link = document.createElement('a');
+  link.className = 'icon-button';
+  link.href = url;
+  link.download = '';
+  link.textContent = '⇩';
+  link.title = `Download ${label}`;
+  link.setAttribute('aria-label', `Download ${label}`);
+  return link;
+}
+
+function fileRow(name, size) {
+  const row = document.createElement('div');
+  row.className = 'file-row';
+  const details = document.createElement('div');
+  details.className = 'file-details';
+  const title = document.createElement('strong');
+  title.textContent = name;
+  const metadata = document.createElement('small');
+  metadata.textContent = fileSize(size);
+  details.append(title, metadata);
+  const actions = document.createElement('div');
+  actions.className = 'file-actions';
+  row.append(details, actions);
+  return {row, actions};
+}
+
+function recordingUrl(path) {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
+
+function renderRecordings() {
+  const list = byId('recording-list');
+  list.replaceChildren();
+  if (!ui.recordings.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = 'No recordings available.';
+    list.appendChild(empty);
+    return;
+  }
+  for (const file of ui.recordings) {
+    const {row, actions} = fileRow(file.name, file.size);
+    if (file.active) row.classList.add('active-file');
+    actions.appendChild(downloadLink(`/api/recordings/${recordingUrl(file.path)}`, file.name));
+    const rename = iconButton('✎', `Rename ${file.name}`);
+    rename.disabled = Boolean(file.active);
+    rename.addEventListener('click', () => renameRecording(file));
+    const remove = iconButton('🗑', `Delete ${file.name}`, 'danger');
+    remove.disabled = Boolean(file.active);
+    remove.addEventListener('click', () => deleteRecording(file));
+    actions.append(rename, remove);
+    list.appendChild(row);
+  }
+}
+
+function renderSounds() {
+  const list = byId('soundboard-list');
+  list.replaceChildren();
+  if (!ui.sounds.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = 'No MP3 files uploaded.';
+    list.appendChild(empty);
+    return;
+  }
+  for (const file of ui.sounds) {
+    const {row, actions} = fileRow(file.name, file.size);
+    const play = iconButton('▶', `Play ${file.name}`, 'play');
+    play.addEventListener('click', () => playSound(file.name, play));
+    actions.appendChild(play);
+    actions.appendChild(downloadLink(`/api/soundboard/${encodeURIComponent(file.name)}`, file.name));
+    const rename = iconButton('✎', `Rename ${file.name}`);
+    rename.addEventListener('click', () => renameSound(file.name));
+    const remove = iconButton('🗑', `Delete ${file.name}`, 'danger');
+    remove.addEventListener('click', () => deleteSound(file.name));
+    actions.append(rename, remove);
+    list.appendChild(row);
+  }
+}
+
+async function loadFiles() {
+  try {
+    const [recordings, soundboard] = await Promise.all([
+      request('/api/recordings'),
+      request('/api/soundboard'),
+    ]);
+    ui.recordings = recordings || [];
+    ui.sounds = soundboard.files || [];
+    renderRecordings();
+    renderSounds();
+  } catch (_) {
+    // request() already reports a useful message.
+  }
+}
+
+async function playSound(name, button) {
+  button.disabled = true;
+  byId('soundboard-status').textContent = `Starting ${name}…`;
+  try {
+    await post(`/api/soundboard/${encodeURIComponent(name)}/play`);
+    await refreshStatus();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function renameSound(name) {
+  const newName = window.prompt('New MP3 filename:', name);
+  if (!newName || newName === name) return;
+  await post(`/api/soundboard/${encodeURIComponent(name)}/rename`, {name: newName});
+  await loadFiles();
+}
+
+async function deleteSound(name) {
+  if (!window.confirm(`Delete ${name}?`)) return;
+  await request(`/api/soundboard/${encodeURIComponent(name)}`, {method: 'DELETE'});
+  await loadFiles();
+}
+
+async function renameRecording(file) {
+  const newName = window.prompt('New Opus filename:', file.name);
+  if (!newName || newName === file.name) return;
+  await post(`/api/recordings/${recordingUrl(file.path)}/rename`, {name: newName});
+  await loadFiles();
+}
+
+async function deleteRecording(file) {
+  if (!window.confirm(`Delete ${file.name}?`)) return;
+  await request(`/api/recordings/${recordingUrl(file.path)}`, {method: 'DELETE'});
+  await loadFiles();
+}
+
+function connectWebSocket() {
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  const socket = new WebSocket(`${protocol}://${location.host}/ws`);
+  ui.socket = socket;
+  socket.addEventListener('open', () => {
+    ui.reconnectDelay = 1000;
+    setConnection(true);
+    clearInterval(ui.fallbackTimer);
+    ui.fallbackTimer = null;
+  });
+  socket.addEventListener('message', (event) => {
+    try {
+      applyStatus(JSON.parse(event.data));
+    } catch (error) {
+      showError(`Invalid live status: ${error.message}`);
+    }
+  });
+  socket.addEventListener('close', () => {
+    setConnection(false, 'RECONNECTING');
+    if (!ui.fallbackTimer) ui.fallbackTimer = setInterval(refreshStatus, 5000);
+    setTimeout(connectWebSocket, ui.reconnectDelay);
+    ui.reconnectDelay = Math.min(ui.reconnectDelay * 2, 15000);
+  });
+  socket.addEventListener('error', () => socket.close());
+}
+
+function bindControls() {
+  for (const button of document.querySelectorAll('[data-preset]')) {
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        applyStatus(await post(`/api/preset/${button.dataset.preset}`));
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+  for (const name of ['pc1', 'pc2', 'headset', 'mic', 'soundboard']) {
+    byId(`${name}-volume`).addEventListener('input', (event) => queueVolume(name, event.target.value));
+  }
+  byId('pc1-mute').addEventListener('click', async () => applyStatus(await post('/api/pc1/mute', {value: !ui.state.pc1?.mute})));
+  byId('pc2-mute').addEventListener('click', async () => applyStatus(await post('/api/pc2/mute', {value: !ui.state.pc2?.mute})));
+  byId('mic-mute').addEventListener('click', async () => applyStatus(await post('/api/mic/mute', {value: !ui.state.microphone?.mute})));
+  byId('mic-pc1').addEventListener('click', async () => applyStatus(await post('/api/mic/route/pc1', {value: !ui.state.microphone?.route_pc1})));
+  byId('mic-pc2').addEventListener('click', async () => applyStatus(await post('/api/mic/route/pc2', {value: !ui.state.microphone?.route_pc2})));
+  for (const select of document.querySelectorAll('select[data-role]')) {
+    select.addEventListener('change', () => assignDevice(select.dataset.role, select.value));
+  }
+  byId('recording-toggle').addEventListener('click', async () => {
+    const button = byId('recording-toggle');
+    button.disabled = true;
+    try {
+      applyStatus(await post('/api/recording/toggle'));
+      await loadFiles();
+    } finally {
+      button.disabled = false;
+    }
+  });
+  byId('soundboard-stop').addEventListener('click', async () => {
+    await post('/api/soundboard/stop');
+    await refreshStatus();
+  });
+  byId('sound-upload').addEventListener('change', async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    byId('soundboard-status').textContent = `Uploading ${file.name}…`;
+    try {
+      await request('/api/soundboard/upload', {method: 'POST', body: form});
+      event.target.value = '';
+      await loadFiles();
+      byId('soundboard-status').textContent = 'Upload complete.';
+    } catch (_) {
+      byId('soundboard-status').textContent = 'Upload failed.';
+    }
+  });
+}
+
+bindControls();
+refreshStatus();
+loadFiles();
+connectWebSocket();
+setInterval(loadFiles, 30000);

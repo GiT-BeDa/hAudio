@@ -1,74 +1,111 @@
 # Install or restore hAudio
 
-These commands assume Raspberry Pi OS/Debian, a dedicated `haudio` service
-user, and a PipeWire PulseAudio-compatible interface.
+This procedure targets Raspberry Pi OS or Debian with PipeWire. It creates a
+dedicated `haudio` account whose user manager owns PipeWire, WirePlumber, and
+the hAudio service. This keeps every audio process in the same runtime session.
 
-## Hardware examples
-
-The project does not require a specific manufacturer. Compatible USB audio
-adapters and 3.5 mm cables may be used. Optional example links:
-
-- [USB audio adapters](https://amzn.to/4xrTc1R)
-- [3.5 mm AUX audio cables](https://amzn.to/4hZ3JfU)
-
-These are affiliate links. The maintainer may receive a commission from a
-qualifying purchase at no additional cost to you. Equivalent hardware works
-as well. As an Amazon Associate I earn from qualifying purchases.
-
-Install the Python dependencies before starting the service:
+## 1. Install system packages
 
 ~~~bash
 sudo apt update
-sudo apt install pipewire pipewire-pulse wireplumber ffmpeg python3 python3-pip
-python3 -m pip install -r requirements.txt
-# For the reproducible tested baseline, use this instead:
-# python3 -m pip install -r requirements-lock.txt
+sudo apt install pipewire pipewire-pulse wireplumber ffmpeg python3 python3-venv
 ~~~
 
-The service unit runs as the unprivileged `haudio` user. Create that user and
-grant it access to the audio devices before enabling the service, if it does
-not already exist:
+Create the service account if it does not exist, then enable its persistent
+user manager:
 
 ~~~bash
-sudo useradd --system --create-home --groups audio,video haudio
+sudo useradd --system --create-home --groups audio haudio
+sudo loginctl enable-linger haudio
+HAUDIO_UID="$(id -u haudio)"
+sudo systemctl start "user@${HAUDIO_UID}.service"
 ~~~
 
-## Copy files
+Do not run PipeWire as root. The user manager creates the required runtime at
+`/run/user/<haudio-uid>` even when nobody is logged in.
+
+## 2. Back up an existing installation
+
+Skip files that do not exist yet.
 
 ~~~bash
-install -d /opt/haudio
-install -o haudio -g haudio -m 755 opt/haudio/haudio_main.py /opt/haudio/haudio_main.py
-install -d -o haudio -g haudio /opt/haudio/frontend
-install -o haudio -g haudio -m 644 opt/haudio/frontend/index.html /opt/haudio/frontend/index.html
-install -o haudio -g haudio -m 644 opt/haudio/frontend/app.js /opt/haudio/frontend/app.js
-install -o haudio -g haudio -m 644 opt/haudio/frontend/style.css /opt/haudio/frontend/style.css
-install -D -m 644 etc/systemd/system/haudio-control.service /etc/systemd/system/haudio-control.service
-install -D -o haudio -g haudio -m 644 etc/pipewire/pipewire.conf.d/haudio.conf \
+sudo cp -a /opt/haudio /opt/haudio.bak
+sudo cp -a /etc/haudio /etc/haudio.bak
+sudo cp -a /home/haudio/.config/systemd/user/haudio-control.service \
+  /home/haudio/.config/systemd/user/haudio-control.service.bak
+~~~
+
+Recordings and `/var/lib/haudio/state.json` are not replaced by the installation.
+
+## 3. Install application and writable directories
+
+Run these commands from the repository root:
+
+~~~bash
+sudo install -d -o haudio -g haudio /opt/haudio /opt/haudio/frontend
+sudo install -d -o haudio -g haudio /opt/haudio/haudio
+sudo install -d -o haudio -g haudio /var/lib/haudio
+sudo install -d -o haudio -g haudio /data/haudio/recordings /data/haudio/soundboard
+sudo install -d -m 755 /etc/haudio
+
+sudo install -o haudio -g haudio -m 755 opt/haudio/haudio_main.py /opt/haudio/haudio_main.py
+sudo install -o haudio -g haudio -m 644 opt/haudio/haudio/*.py /opt/haudio/haudio/
+sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/index.html /opt/haudio/frontend/index.html
+sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/app.js /opt/haudio/frontend/app.js
+sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/style.css /opt/haudio/frontend/style.css
+sudo install -m 644 etc/haudio/haudio.json /etc/haudio/haudio.json
+~~~
+
+Create an isolated Python environment and install the tested dependency set:
+
+~~~bash
+sudo -u haudio python3 -m venv /opt/haudio/.venv
+sudo -u haudio /opt/haudio/.venv/bin/pip install -r requirements-lock.txt
+~~~
+
+## 4. Install PipeWire and user-service configuration
+
+~~~bash
+sudo install -D -o haudio -g haudio -m 644 etc/pipewire/pipewire.conf.d/haudio.conf \
   /home/haudio/.config/pipewire/pipewire.conf.d/haudio.conf
+sudo install -D -o haudio -g haudio -m 644 etc/systemd/user/haudio-control.service \
+  /home/haudio/.config/systemd/user/haudio-control.service
 ~~~
 
-Back up existing files first:
+Enable PipeWire and hAudio in the same user manager:
 
 ~~~bash
-cp -a /opt/haudio/haudio_main.py /opt/haudio/haudio_main.py.bak
-cp -a /etc/systemd/system/haudio-control.service /etc/systemd/system/haudio-control.service.bak
+HAUDIO_UID="$(id -u haudio)"
+sudo -u haudio env XDG_RUNTIME_DIR="/run/user/${HAUDIO_UID}" \
+  systemctl --user daemon-reload
+sudo -u haudio env XDG_RUNTIME_DIR="/run/user/${HAUDIO_UID}" \
+  systemctl --user enable --now pipewire.service pipewire-pulse.service wireplumber.service
+sudo -u haudio env XDG_RUNTIME_DIR="/run/user/${HAUDIO_UID}" \
+  systemctl --user enable --now haudio-control.service
 ~~~
 
-## Enable and verify
+## 5. Verify
 
 ~~~bash
-python3 -m py_compile /opt/haudio/haudio_main.py
-systemctl daemon-reload
-systemctl enable --now haudio-control.service
-systemctl status haudio-control.service --no-pager
-curl http://127.0.0.1:8765/api/status
-runuser -u haudio -- pactl list cards
+HAUDIO_UID="$(id -u haudio)"
+sudo -u haudio env XDG_RUNTIME_DIR="/run/user/${HAUDIO_UID}" \
+  systemctl --user status haudio-control.service --no-pager
+sudo -u haudio env XDG_RUNTIME_DIR="/run/user/${HAUDIO_UID}" \
+  pactl info
+curl --fail http://127.0.0.1:8765/api/status
 ~~~
 
-The application may need several seconds after startup for device
-initialization. Replace `<raspberry-pi-address>` with the Pi's current LAN
-address when opening the web interface: `http://<raspberry-pi-address>:8765`.
+Open `http://<raspberry-pi-address>:8765` and assign one detected USB audio
+interface to each required role. A single interface cannot be assigned to
+multiple roles because that could create feedback loops.
 
-For development and CI, install the tested development set with
-`python3 -m pip install -r requirements-dev-lock.txt` and run `pytest -q` from
-the repository root.
+## Existing custom installations
+
+An existing installation may deliberately run the backend as a normal login
+user. Keep that user and its working PipeWire session during an upgrade. Copy
+the new application files and restart the existing service, but do not replace
+its service identity with the generic `haudio` account without migrating the
+PipeWire session as well.
+
+See [CONFIGURATION.md](CONFIGURATION.md) for recording, storage, and path
+settings and [OPERATIONS.md](OPERATIONS.md) for diagnostics.

@@ -40,10 +40,13 @@ can be selected for the headset role.
 
 ## Included files
 
-- opt/haudio/haudio_main.py – FastAPI backend, PipeWire control, device
-  monitoring, level meters, soundboard, and recording
+- opt/haudio/haudio_main.py – stable Uvicorn entry point
+- opt/haudio/haudio/ – configuration, atomic state, PipeWire graph, media
+  processes, status monitoring, and FastAPI routes
 - opt/haudio/frontend/ – static HTML, JavaScript, and CSS for the web interface
-- etc/systemd/system/haudio-control.service – automatic backend start/restart
+- etc/systemd/user/haudio-control.service – automatic backend start/restart in
+  the same user session as PipeWire
+- etc/haudio/haudio.json – generic recording and audio configuration
 - etc/pipewire/pipewire.conf.d/haudio.conf – 48 kHz audio parameters
 - docs/ – installation, operations, API, and reference-setup documentation
 - requirements.txt and requirements-dev.txt – flexible runtime and test dependencies
@@ -54,24 +57,10 @@ Runtime state, recordings, credentials, and private SSH keys are not included.
 
 ## Quick installation
 
-For a complete installation, including system packages, the service user,
-static frontend files, and verification, follow [docs/INSTALL.md](docs/INSTALL.md).
-The abbreviated example below assumes those prerequisites are already present:
-
-~~~bash
-sudo install -d /opt/haudio
-sudo install -o haudio -g haudio -m 755 opt/haudio/haudio_main.py /opt/haudio/haudio_main.py
-sudo install -d -o haudio -g haudio /opt/haudio/frontend
-sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/index.html /opt/haudio/frontend/index.html
-sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/app.js /opt/haudio/frontend/app.js
-sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/style.css /opt/haudio/frontend/style.css
-sudo install -D -m 644 etc/systemd/system/haudio-control.service /etc/systemd/system/haudio-control.service
-sudo install -D -o haudio -g haudio -m 644 etc/pipewire/pipewire.conf.d/haudio.conf \
-  /home/haudio/.config/pipewire/pipewire.conf.d/haudio.conf
-sudo python3 -m py_compile /opt/haudio/haudio_main.py
-sudo systemctl daemon-reload
-sudo systemctl enable --now haudio-control.service
-~~~
+For a complete installation, including system packages, writable directory
+ownership, an isolated Python environment, the PipeWire user session, and
+verification, follow [docs/INSTALL.md](docs/INSTALL.md). Do not run PipeWire as
+root or place the backend in a different runtime session from PipeWire.
 
 Open the web interface at `http://<raspberry-pi-address>:8765`. See
 `docs/INSTALL.md` for backups, verification, and recovery details.
@@ -83,12 +72,14 @@ requirements-dev.txt`, then run:
 
 ~~~bash
 python3 -m py_compile opt/haudio/haudio_main.py
+python3 -m compileall -q opt/haudio/haudio
+node --check opt/haudio/frontend/app.js
 pytest -q
 ~~~
 
-The tests cover device assignment, loopback cleanup filtering, filename
-validation, runtime environment handling, the installation configuration, and
-serving the separated frontend assets.
+The tests cover atomic persistence, actual PipeWire node discovery, partial
+graphs, microphone and soundboard routing, API route behavior, duplicate
+assignment protection, and the complete static frontend.
 
 ## Web interface
 
@@ -102,6 +93,8 @@ The screenshot is an example deployment. Device names and assignments vary
 depending on the hardware connected to the Raspberry Pi.
 
 The endpoint reference is available in [docs/API.md](docs/API.md).
+The process and failure-boundary design is described in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Related projects
 
@@ -115,9 +108,10 @@ headset microphone, stored as segmented Opus files under
 /data/haudio/recordings/YYYY-MM-DD/. Recordings can be started, stopped,
 downloaded, renamed, and deleted.
 
-MP3 files can be uploaded, played, downloaded, renamed, and deleted. Playback
-uses a dedicated PipeWire mix bus and is sent to the headset and non-muted
-computer outputs. Both features work independently of the browser.
+MP3 files can be uploaded, validated, played, downloaded, renamed, and deleted.
+Playback uses a dedicated PipeWire mix bus and is sent to the headset and the
+currently active microphone routes. Both features work independently of the
+browser.
 
 ## Device assignment
 
@@ -125,18 +119,19 @@ Currently detected USB audio cards can be assigned to PC1, PC2, and
 headset/microphone roles in the web interface. Assignments are stored
 persistently and the audio graph is rebuilt from the selected PipeWire cards.
 
-## Current operation
+## Operation
 
 - Web interface: `http://<raspberry-pi-address>:8765`
-- Service: `haudio-control.service`
+- User service: `haudio-control.service`
 - Service user: `haudio`
 - PipeWire runtime: `/run/user/<service-uid>`
-- Logs: `journalctl -u haudio-control.service -f`
+- Configuration: `/etc/haudio/haudio.json`
+- Logs: `journalctl --user -u haudio-control.service -f` in the service user's session
 
-Audio processing runs independently of the browser. USB capture gain is reset
-to a safe level during startup and device recovery to prevent clipping.
-The Raspberry Pi undervoltage warning display is suppressed with
-avoid_warnings=1; kernel undervoltage detection remains enabled.
+Audio processing runs independently of the browser. Healthy PipeWire routes
+are preserved during backend restarts and only stale or missing links are
+replaced. Recording processes are secondary and automatically recover after a
+temporary device loss when recording was requested.
 
 ## Security and contribution
 

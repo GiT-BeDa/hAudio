@@ -1,51 +1,80 @@
 # Operation and diagnostics
 
-## Service
+The commands below assume the generic `haudio` service account. Existing
+custom installations should substitute their actual PipeWire user.
 
 ~~~bash
-systemctl restart haudio-control.service
-systemctl status haudio-control.service --no-pager -l
-journalctl -u haudio-control.service -f
+HAUDIO_UID="$(id -u haudio)"
+HAUDIO_RUN="/run/user/${HAUDIO_UID}"
 ~~~
 
-## PipeWire devices
+## Service and logs
 
 ~~~bash
-runuser -u haudio -- pactl list short sources
-runuser -u haudio -- pactl list short sinks
+sudo -u haudio env XDG_RUNTIME_DIR="${HAUDIO_RUN}" \
+  systemctl --user status haudio-control.service --no-pager -l
+sudo -u haudio env XDG_RUNTIME_DIR="${HAUDIO_RUN}" \
+  systemctl --user restart haudio-control.service
+journalctl _SYSTEMD_USER_UNIT=haudio-control.service -f
+~~~
+
+The backend logs device reconciliation, routing changes, presets, volume and
+mute changes, recording state, retention deletions, and failed subprocesses.
+
+## PipeWire devices and graph
+
+~~~bash
+sudo -u haudio env XDG_RUNTIME_DIR="${HAUDIO_RUN}" pactl info
+sudo -u haudio env XDG_RUNTIME_DIR="${HAUDIO_RUN}" pactl list short cards
+sudo -u haudio env XDG_RUNTIME_DIR="${HAUDIO_RUN}" pactl list short sources
+sudo -u haudio env XDG_RUNTIME_DIR="${HAUDIO_RUN}" pactl list short sinks
+sudo -u haudio env XDG_RUNTIME_DIR="${HAUDIO_RUN}" pactl list short modules
 cat /proc/asound/cards
-for x in /sys/class/sound/card*; do echo "$x: $(readlink -f "$x/device")"; done
+for card in /sys/class/sound/card*; do echo "$card: $(readlink -f "$card/device")"; done
 ~~~
 
-## Clipping
-
-USB capture gain should be set to a safe level, normally 0 dB:
-
-~~~bash
-amixer -c1 sget Mic
-amixer -c2 sget Mic
-~~~
+The web status footer distinguishes between PipeWire being reachable and the
+hAudio graph being complete. An unassigned role is allowed; routes for other
+assigned devices continue to be monitored and repaired.
 
 ## USB reconnection
 
-hAudio continuously checks PipeWire devices. If devices or hAudio loopbacks
-disappear, the graph is rebuilt. When devices return, USB cards are assigned
-again using their physical paths. The web interface shows missing devices as
-disconnected.
+hAudio identifies USB audio cards by `device.bus_path`. Sources and sinks are
+resolved from the current PipeWire objects, so profile-specific suffixes are
+not assumed. On a reconnect, only stale or missing hAudio loopbacks are
+replaced. Healthy routes remain active.
 
-## Recordings and web interface
+If a device was moved to another physical USB port, select its new path in the
+appropriate web-interface card. Assigning one interface to multiple roles is
+blocked to prevent accidental feedback.
 
-Recordings are started under “Recordings”. Each file is a segmented Opus file
-containing headset output and microphone. A recording failure must not stop
-audio routing; details are written to the journal.
+## Recordings
 
-The web interface is available at `http://<raspberry-pi-address>:8765`. Its layout is:
+Combined recordings contain headset output and microphone at the configured
+Opus bitrate. Active segments cannot be renamed or deleted. If FFmpeg exits
+after temporary device loss, hAudio retries while recording remains requested.
 
-1. PC1 and PC2
-2. Headset and microphone
-3. Recordings and soundboard
-4. System status in the footer
+Retention runs hourly. Files older than `recording_max_age_days` are removed,
+then the oldest files are removed as needed to maintain
+`recording_min_free_gb` and `recording_max_disk_usage_percent`. Every deletion
+is written to the journal.
 
-MP3 files are stored in `/data/haudio/soundboard/`. Playback is sent to the
-headset and non-muted computer outputs. Starting a new file stops the previous
-one.
+## Audio faults and load
+
+For USB transfer errors, XRUNs, or regular dropouts, inspect both kernel and
+PipeWire logs:
+
+~~~bash
+journalctl -k --since "10 minutes ago" | grep -E 'usb|NYET|under.?voltage|xrun' -i
+journalctl --user --since "10 minutes ago" | grep -E 'pipewire|wireplumber|broken pipe|xrun' -i
+~~~
+
+Increasing `loopback_latency_ms` or the PipeWire quantum can improve marginal
+USB hardware at the cost of latency. Change one setting at a time and test all
+routes before keeping it.
+
+## Web interface
+
+Open `http://<raspberry-pi-address>:8765`. The page reconnects its WebSocket
+automatically and falls back to periodic HTTP status requests while live
+updates are unavailable. API errors appear in a visible banner.

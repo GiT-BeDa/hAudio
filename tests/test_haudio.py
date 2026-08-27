@@ -1,97 +1,244 @@
-import importlib.util
-import os
+import json
+import sys
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 
-MODULE_PATH = Path(__file__).parents[1] / 'opt' / 'haudio' / 'haudio_main.py'
-spec = importlib.util.spec_from_file_location('haudio_main_under_test', MODULE_PATH)
-haudio = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(haudio)
+PROJECT_ROOT = Path(__file__).parents[1]
+APP_ROOT = PROJECT_ROOT / "opt" / "haudio"
+sys.path.insert(0, str(APP_ROOT))
+
+from haudio.app import create_app  # noqa: E402
+from haudio.audio import AudioController, CommandResult  # noqa: E402
+from haudio.config import Config  # noqa: E402
+from haudio.media import valid_recording_filename, valid_sound_filename  # noqa: E402
+from haudio.state import StateStore  # noqa: E402
 
 
-def test_only_haudio_loopbacks_are_selected_for_cleanup():
-    output = (
-        '12\tmodule-loopback\tsource=mic sink=headset\n'
-        '13\tmodule-loopback\tsource=HAUDIO_SOUNDBOARD.monitor sink=x\n'
-        '14\tmodule-null-sink\tsink_name=HAUDIO_SOUNDBOARD\n'
-        '15\tmodule-loopback\tsource=x sink=y HAUDIO_PC1_IN\n'
+def test_state_store_is_atomic_and_round_trips(tmp_path):
+    path = tmp_path / "state" / "state.json"
+    store = StateStore(path)
+    store.update({"pc1_volume": 42})
+    assert json.loads(path.read_text())["pc1_volume"] == 42
+    assert not list(path.parent.glob(".state-*.json"))
+
+    restored = StateStore(path)
+    restored.load()
+    assert restored.get("pc1_volume") == 42
+
+
+def test_filename_validation_allows_common_characters_but_blocks_paths():
+    assert valid_sound_filename("meeting's intro.mp3")
+    assert not valid_sound_filename("../escape.mp3")
+    assert valid_recording_filename("Peter's session 01.opus")
+    assert not valid_recording_filename("../session.opus")
+
+
+def test_audio_cards_use_real_nodes_instead_of_constructed_suffixes(tmp_path):
+    payloads = {
+        "cards": [{
+            "name": "alsa_card.usb-example",
+            "properties": {
+                "device.bus": "usb",
+                "device.bus_path": "usb-port-1.2",
+                "device.product.name": "Example Audio",
+            },
+        }],
+        "sources": [{
+            "name": "alsa_input.usb-example.custom-input",
+            "properties": {"device.name": "alsa_card.usb-example"},
+        }],
+        "sinks": [{
+            "name": "alsa_output.usb-example.custom-output",
+            "properties": {"device.name": "alsa_card.usb-example"},
+        }],
+    }
+
+    def runner(args, _env, _timeout):
+        return CommandResult(0, json.dumps(payloads[args[-1]]), "")
+
+    config = Config(state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings", soundboard_dir=tmp_path / "sounds")
+    audio = AudioController(config, StateStore(config.state_file), runner)
+    assert audio.cards()[0]["source"] == "alsa_input.usb-example.custom-input"
+    assert audio.cards()[0]["sink"] == "alsa_output.usb-example.custom-output"
+
+
+def test_partial_graph_only_requires_routes_for_assigned_devices(tmp_path):
+    config = Config(state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings", soundboard_dir=tmp_path / "sounds")
+    store = StateStore(config.state_file)
+    store.update({"assignments": {"headset": "headset", "pc1": "pc1"}})
+    audio = AudioController(config, store)
+    nodes = {"pc1_in": "pc1-source", "pc1_out": "pc1-sink", "pc2_in": None, "pc2_out": None,
+             "mic_in": "mic-source", "headset": "headset-sink"}
+    desired = audio.desired_graph(nodes)
+    assert "PC1_IN" in desired
+    assert "MIC_PC1" in desired
+    assert "PC2_IN" not in desired
+    assert "MIC_PC2" not in desired
+
+
+def test_soundboard_output_follows_microphone_routes(tmp_path):
+    calls = []
+
+    def runner(args, _env, _timeout):
+        calls.append(args)
+        return CommandResult(0, "", "")
+
+    config = Config(state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings", soundboard_dir=tmp_path / "sounds")
+    store = StateStore(config.state_file)
+    store.update({"mic_mute": False, "mic_pc1": False, "mic_pc2": True})
+    audio = AudioController(config, store, runner)
+    audio._stream_indexes = lambda kind: ({"SOUNDBOARD_PC1": "11", "SOUNDBOARD_PC2": "12"} if kind == "sink-inputs" else {})
+    audio.nodes = lambda cards=None: {"headset": None, "mic_in": None}
+    audio.apply_controls()
+    mute_calls = [args for args in calls if "set-sink-input-mute" in args]
+    assert ["/usr/bin/pactl", "set-sink-input-mute", "11", "1"] in mute_calls
+    assert ["/usr/bin/pactl", "set-sink-input-mute", "12", "0"] in mute_calls
+
+
+class FakeAudio:
+    def __init__(self, store):
+        self.store = store
+        self.cards_value = [{
+            "id": "usb-1", "product": "USB Audio", "description": "USB Audio",
+            "has_input": True, "has_output": True,
+        }]
+
+    def cards(self):
+        return self.cards_value
+
+    def set_volume(self, target, value):
+        key = "mic_volume" if target == "mic" else f"{target}_volume"
+        self.store.update({key: value})
+
+    def set_mute(self, target, value):
+        self.store.update({f"{target}_mute": value})
+
+    def set_route(self, target, value):
+        self.store.update({f"mic_{target}": value})
+
+    def reconcile_graph(self):
+        return True
+
+    def apply_controls(self):
+        return None
+
+
+class FakeMedia:
+    def soundboard_status(self):
+        return {"playing": "", "active": False, "volume": 100}
+
+    def recording_active(self):
+        return False
+
+
+class FakeRuntime:
+    def __init__(self, config):
+        self.config = config
+        self.store = StateStore(config.state_file)
+        self.audio = FakeAudio(self.store)
+        self.media = FakeMedia()
+        self.started = False
+
+    async def start(self):
+        self.config.ensure_directories()
+        self.started = True
+
+    async def stop(self):
+        self.started = False
+
+    def device_payload(self, cards=None):
+        cards = cards or self.audio.cards()
+        assignments = self.store.get("assignments", {})
+        return {"cards": cards, "assignments": assignments, "selected": assignments}
+
+    async def status(self):
+        state = self.store.snapshot()
+        return {
+            "name": "hAudio", "version": "0.01", "online": True,
+            "pc1": {"connected": True, "volume": state["pc1_volume"], "mute": state["pc1_mute"]},
+            "pc2": {"connected": True, "volume": state["pc2_volume"], "mute": state["pc2_mute"]},
+            "headset": {"connected": True, "volume": state["headset_volume"]},
+            "microphone": {"connected": True, "volume": state["mic_volume"], "mute": state["mic_mute"],
+                           "route_pc1": state["mic_pc1"], "route_pc2": state["mic_pc2"]},
+            "recording": {"session": False}, "soundboard": self.media.soundboard_status(),
+            "levels": {}, "system": {"pipewire": True, "graph_ready": True},
+            "devices": self.device_payload(), "errors": [],
+        }
+
+    async def refresh_status(self):
+        return await self.status()
+
+
+def test_mic_mute_and_volume_api_are_reachable(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
     )
-    assert haudio.haudio_loopback_ids(output) == ['13', '15']
+    runtime = FakeRuntime(config)
+    app = create_app(config, runtime)
+    with TestClient(app) as client:
+        response = client.post("/api/mic/mute", json={"value": True})
+        assert response.status_code == 200
+        assert response.json()["microphone"]["mute"] is True
+        response = client.post("/api/mic/volume", json={"value": 37})
+        assert response.status_code == 200
+        assert response.json()["microphone"]["volume"] == 37
 
 
-def test_unassigned_roles_do_not_use_hardware_fallbacks():
-    cards = [{'id': 'usb-1', 'suffix': 'card_1', 'product': 'Any USB Audio',
-              'description': 'Any USB Audio', 'source': 'source_1', 'sink': 'sink_1'}]
-    old = haudio.state.get('assignments')
-    haudio.state['assignments'] = {}
-    try:
-        assert haudio.selected_card('pc1', cards) is None
-        assert haudio.selected_card('pc2', cards) is None
-        assert haudio.selected_card('headset', cards) is None
-    finally:
-        haudio.state['assignments'] = old or {}
+def test_duplicate_device_assignment_is_rejected(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
+    )
+    runtime = FakeRuntime(config)
+    runtime.store.update({"assignments": {"pc1": "usb-1"}})
+    app = create_app(config, runtime)
+    with TestClient(app) as client:
+        response = client.post("/api/devices/assign", json={"role": "pc2", "card_id": "usb-1"})
+        assert response.status_code == 409
 
 
-def test_explicit_assignment_selects_card_by_physical_id():
-    cards = [{'id': 'usb-1.2', 'suffix': 'card_1', 'product': 'Any USB Audio',
-              'description': 'Any USB Audio', 'source': 'source_1', 'sink': 'sink_1'}]
-    old = haudio.state.get('assignments')
-    haudio.state['assignments'] = {'pc1': 'usb-1.2'}
-    try:
-        assert haudio.selected_card('pc1', cards) == cards[0]
-    finally:
-        haudio.state['assignments'] = old or {}
+def test_preset_updates_routes_and_mutes(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
+    )
+    runtime = FakeRuntime(config)
+    app = create_app(config, runtime)
+    with TestClient(app) as client:
+        response = client.post("/api/preset/pc1-only")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["pc1"]["mute"] is False
+        assert payload["pc2"]["mute"] is True
+        assert payload["microphone"]["route_pc1"] is True
+        assert payload["microphone"]["route_pc2"] is False
 
 
-def test_filename_validation_allows_apostrophe_but_blocks_paths():
-    assert haudio.valid_sound_filename("meeting's intro.mp3")
-    assert not haudio.valid_sound_filename('../escape.mp3')
-    assert haudio.valid_recording_filename('session 01.opus')
-    assert not haudio.valid_recording_filename('../session.opus')
+def test_frontend_is_complete_and_uses_stable_dom_updates(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
+    )
+    app = create_app(config, FakeRuntime(config))
+    with TestClient(app) as client:
+        index = client.get("/")
+        javascript = client.get("/static/app.js")
+        assert index.status_code == 200
+        assert "SYSTEM STATUS" in index.text
+        assert "SOUNDBOARD" in index.text
+        assert javascript.status_code == 200
+        assert "innerHTML" not in javascript.text
+        assert "connectWebSocket" in javascript.text
 
 
-def test_audio_environment_uses_process_runtime_by_default():
-    env = haudio.audio_env()
-    assert env['XDG_RUNTIME_DIR'] == haudio.RUNTIME_DIR
-    assert env['PULSE_SERVER'] == haudio.PULSE_SERVER
-
-
-def test_requirements_and_service_use_generic_runtime_configuration():
-    requirements = (MODULE_PATH.parents[2] / 'requirements.txt').read_text()
-    service = (MODULE_PATH.parents[2] / 'etc' / 'systemd' / 'system' / 'haudio-control.service').read_text()
-    assert 'fastapi' in requirements.lower()
-    assert 'uvicorn' in requirements.lower()
-    assert 'User=haudio' in service
-    assert 'XDG_RUNTIME_DIR=/run/user/1000' not in service
-
-
-def test_api_documentation_covers_controls_and_soundboard_volume():
-    docs = (MODULE_PATH.parents[2] / 'docs' / 'API.md').read_text()
-    assert 'POST` | `/api/soundboard/volume' in docs
-    assert '`/api/status`' in docs
-    assert '`/ws`' in docs
-
-
-def test_frontend_is_served_as_separate_static_assets():
-    client = TestClient(haudio.APP)
-
-    index = client.get('/')
-    assert index.status_code == 200
-    assert 'hAudio 0.01' in index.text
-    assert '/static/app.js' in index.text
-    assert '/static/style.css' in index.text
-
-    javascript = client.get('/static/app.js')
-    stylesheet = client.get('/static/style.css')
-    assert javascript.status_code == 200
-    assert stylesheet.status_code == 200
-    assert 'function api' in javascript.text
-    assert '.card' in stylesheet.text
-
-
-def test_public_package_does_not_embed_the_old_html_page():
-    source = MODULE_PATH.read_text()
-    assert "HTML='''" not in source
-    assert 'StaticFiles' in source
+def test_documentation_and_service_use_generic_user_runtime():
+    install = (PROJECT_ROOT / "docs" / "INSTALL.md").read_text()
+    service = (PROJECT_ROOT / "etc" / "systemd" / "user" / "haudio-control.service").read_text()
+    api = (PROJECT_ROOT / "docs" / "API.md").read_text()
+    assert "<raspberry-pi-address>" in install
+    assert "User=" not in service
+    assert "pipewire.service" in service
+    assert "/api/mic/mute" in api

@@ -20,3 +20,7 @@ For audio changes, include the tested sample rate, connected device types,
 hotplug/reboot behavior, and any known latency or CPU trade-offs. Keep the
 audio engine independent from the browser and treat recording failures as
 non-fatal to live audio.
+
+Tests use temporary state and media directories. New tests must not create
+files under `/var/lib`, `/data`, or a contributor's home directory. The GitHub
+Actions workflow runs the same compilation, JavaScript, and pytest checks.

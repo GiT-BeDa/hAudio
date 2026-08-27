@@ -1,0 +1,19 @@
+[Unit]
+Description=hAudio control backend
+After=pipewire.service pipewire-pulse.service wireplumber.service network-online.target
+Wants=network-online.target
+Requires=pipewire.service pipewire-pulse.service wireplumber.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/haudio
+ExecStart=/opt/haudio/.venv/bin/python -m uvicorn haudio_main:APP --host 0.0.0.0 --port 8765
+Restart=always
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=8
+NoNewPrivileges=true
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

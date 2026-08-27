@@ -1,0 +1,10 @@
+{
+  "sample_rate": 48000,
+  "loopback_latency_ms": 10,
+  "recording_bitrate": "128k",
+  "recording_segment_seconds": 3600,
+  "recording_max_age_days": 30,
+  "recording_max_disk_usage_percent": 90.0,
+  "recording_min_free_gb": 5.0,
+  "soundboard_max_bytes": 209715200
+}

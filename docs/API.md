@@ -16,7 +16,7 @@ state. Errors are JSON objects such as `{"detail":"invalid volume"}`.
 | --- | --- | --- |
 | `GET` | `/api/status` | Complete live state: computers, headset, microphone, recording, soundboard, levels, system and devices. |
 | `GET` | `/api/devices` | Lists detected USB audio cards and current assignments. |
-| `POST` | `/api/devices/assign` | Assign a card: `{"role":"pc1\|pc2\|headset","card_id":"..."}`. Use an empty `card_id` to unassign. |
+| `POST` | `/api/devices/assign` | Assign a card: `{"role":"pc1\|pc2\|headset","card_id":"..."}`. Use an empty `card_id` to unassign. Duplicate role assignments return `409`. |
 
 Volume values are integer percentages from 0 to 100. Mute and microphone
 route values are booleans.
@@ -36,15 +36,22 @@ route values are booleans.
 | `POST` | `/api/mic/route/pc1` | `{"value":true}` |
 | `POST` | `/api/mic/route/pc2` | `{"value":true}` |
 
+## Presets
+
+Apply a preset with `POST /api/preset/{name}`. Available names are `normal`,
+`pc1-only`, `pc2-only`, `meeting`, and `mute-all`. Presets update audio
+controls but do not implicitly start or stop recording.
+
 ## Soundboard
 
-`GET /api/soundboard` returns `{ "files": [], "playing": "", "volume": 100 }`.
+`GET /api/soundboard` returns `{ "files": [], "playing": "", "active": false,
+"volume": 100 }`.
 Soundboard playback is independent of the browser and is routed to the
-headset and non-muted computer outputs.
+headset and currently active microphone routes.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/soundboard/upload` | Multipart upload with form field `file`; MP3 only, maximum 200 MB. |
+| `POST` | `/api/soundboard/upload` | Multipart upload with form field `file`; filename and MP3 audio stream are validated; maximum size is configurable. |
 | `POST` | `/api/soundboard/{name}/play` | Start or replace playback of an MP3. |
 | `POST` | `/api/soundboard/stop` | Stop playback. |
 | `GET` | `/api/soundboard/{name}` | Download an MP3. |
@@ -68,11 +75,15 @@ segmented Opus session.
 | `POST` | `/api/recordings/{path}/rename` | Rename with `{"name":"new-name.opus"}`. |
 | `DELETE` | `/api/recordings/{path}` | Delete a recording. |
 
+An active recording segment returns `409` when rename or deletion is
+requested. Stop recording first so no open file is accidentally lost.
+
 ## Live updates
 
 Connect a WebSocket to `/ws`. The server sends a JSON status object about once
 per second. It includes the same main state sections as `/api/status`, plus
-live dB levels in `levels`.
+live dB levels in `levels`. The browser automatically reconnects after a lost
+connection. Browser WebSocket origins must match the hAudio host.
 
 Example:
 
@@ -80,7 +91,9 @@ Example:
 {
   "pc1": {"connected": true, "volume": 70, "mute": false},
   "soundboard": {"playing": "alert.mp3", "active": true, "volume": 80},
-  "levels": {"pc1": -18.2, "pc2": -60.0, "microphone": -24.1, "headset": -14.0}
+  "levels": {"pc1": -18.2, "pc2": -60.0, "microphone": -24.1, "headset": -14.0},
+  "system": {"pipewire": true, "graph_ready": true, "disk_free_gb": 42.1},
+  "errors": []
 }
 ```
 

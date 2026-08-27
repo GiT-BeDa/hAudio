@@ -1,0 +1,285 @@
+"""Soundboard playback, combined recording, and retention."""
+
+from __future__ import annotations
+
+import logging
+import os
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+from pathlib import Path
+from typing import BinaryIO
+
+from fastapi import HTTPException
+
+from .audio import AudioController
+from .config import Config
+from .state import StateStore
+
+
+LOG = logging.getLogger("haudio.media")
+
+
+def valid_sound_filename(name: str) -> bool:
+    import re
+    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _.,'()&+\-]{0,120}\.mp3", name, re.I))
+
+
+def valid_recording_filename(name: str) -> bool:
+    import re
+    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _.'()&+\-]{0,120}\.opus", name, re.I))
+
+
+class MediaManager:
+    def __init__(self, config: Config, store: StateStore, audio: AudioController):
+        self.config = config
+        self.store = store
+        self.audio = audio
+        self._lock = threading.RLock()
+        self.processes: dict[str, subprocess.Popen] = {}
+        self.recording_prefix = ""
+        self.last_error = ""
+        self.last_recording_retry = 0.0
+
+    def soundboard_path(self, name: str) -> Path:
+        path = (self.config.soundboard_dir / name).resolve()
+        root = self.config.soundboard_dir.resolve()
+        if root not in path.parents or not path.is_file() or path.suffix.lower() != ".mp3":
+            raise HTTPException(404, "soundboard file not found")
+        return path
+
+    def recording_path(self, relative: str) -> Path:
+        try:
+            path = (self.config.recording_dir / relative).resolve()
+        except Exception as exc:
+            raise HTTPException(400, "invalid path") from exc
+        root = self.config.recording_dir.resolve()
+        if root not in path.parents or not path.is_file() or path.suffix.lower() != ".opus":
+            raise HTTPException(404, "recording not found")
+        return path
+
+    def soundboard_files(self) -> list[dict]:
+        return [
+            {"name": path.name, "size": path.stat().st_size, "modified": path.stat().st_mtime}
+            for path in sorted(self.config.soundboard_dir.glob("*.mp3"), key=lambda item: item.name.lower())
+        ]
+
+    def recording_files(self) -> list[dict]:
+        files = sorted(
+            self.config.recording_dir.rglob("*.opus"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        return [
+            {
+                "path": str(path.relative_to(self.config.recording_dir)),
+                "name": path.name,
+                "size": path.stat().st_size,
+                "modified": path.stat().st_mtime,
+                "active": bool(self.recording_prefix and path.name.startswith(self.recording_prefix)),
+            }
+            for path in files
+        ]
+
+    def validate_mp3(self, path: Path) -> bool:
+        result = self.audio.run(
+            "/usr/bin/ffprobe", "-v", "error", "-select_streams", "a:0",
+            "-show_entries", "stream=codec_name", "-of", "default=nk=1:nw=1", str(path),
+            timeout=15,
+        )
+        return result.returncode == 0 and "mp3" in result.stdout.lower()
+
+    def store_upload(self, filename: str, source: BinaryIO) -> None:
+        original = Path(filename).name
+        if not valid_sound_filename(original):
+            raise HTTPException(400, "only MP3 files with a safe filename are allowed")
+        target = self.config.soundboard_dir / original
+        temporary: Path | None = None
+        total = 0
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=self.config.soundboard_dir, prefix=".upload-", suffix=".tmp", delete=False
+            ) as output:
+                temporary = Path(output.name)
+                while chunk := source.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > self.config.soundboard_max_bytes:
+                        raise HTTPException(400, "file exceeds configured upload limit")
+                    output.write(chunk)
+            if total == 0:
+                raise HTTPException(400, "file is empty")
+            if not self.validate_mp3(temporary):
+                raise HTTPException(400, "file does not contain a valid MP3 audio stream")
+            os.replace(temporary, target)
+            temporary = None
+            LOG.info("Soundboard file uploaded: %s", original)
+        finally:
+            if temporary:
+                temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _stop_process(process: subprocess.Popen | None, timeout: float = 2.0) -> None:
+        if not process or process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+    def play(self, name: str) -> None:
+        path = self.soundboard_path(name)
+        with self._lock:
+            self._stop_process(self.processes.pop("soundboard", None))
+            args = [
+                "/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "warning", "-re", "-i", str(path),
+                "-vn", "-af", "apad=pad_dur=2", "-ac", "2", "-ar", str(self.config.sample_rate),
+                "-flush_packets", "1", "-f", "pulse", "-buffer_duration", "2000",
+                "-device", "HAUDIO_SOUNDBOARD", "-",
+            ]
+            self.processes["soundboard"] = subprocess.Popen(
+                args, env=self.audio.environment(), stdout=subprocess.DEVNULL
+            )
+            self.store.update({"soundboard_playing": name})
+            self.last_error = ""
+            LOG.info("Soundboard playback started: %s", name)
+
+    def stop_soundboard(self) -> None:
+        with self._lock:
+            self._stop_process(self.processes.pop("soundboard", None))
+            self.store.update({"soundboard_playing": ""})
+            LOG.info("Soundboard playback stopped")
+
+    def soundboard_status(self) -> dict:
+        with self._lock:
+            process = self.processes.get("soundboard")
+            active = bool(process and process.poll() is None)
+            if not active and self.store.get("soundboard_playing", ""):
+                self.store.update({"soundboard_playing": ""})
+            return {
+                "playing": self.store.get("soundboard_playing", ""),
+                "active": active,
+                "volume": self.store.get("soundboard_volume", 100),
+            }
+
+    def start_recording(self, requested_by_user: bool = True) -> None:
+        with self._lock:
+            process = self.processes.get("session")
+            if process and process.poll() is None:
+                return
+            nodes = self.audio.nodes()
+            if not nodes["headset"] or not nodes["mic_in"]:
+                if requested_by_user:
+                    raise HTTPException(409, "headset and microphone must be assigned before recording")
+                return
+            directory = self.config.recording_dir / time.strftime("%Y-%m-%d")
+            directory.mkdir(parents=True, exist_ok=True)
+            self.recording_prefix = time.strftime("%Y-%m-%d_%H-%M-%S_headset-session")
+            output = directory / f"{self.recording_prefix}.%03d.opus"
+            audio_filter = (
+                "[0:a]aresample=48000[a];"
+                "[1:a]aresample=48000,volume=0.70,pan=stereo|c0=c0|c1=c0[b];"
+                "[a][b]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,"
+                "alimiter=limit=0.95[out]"
+            )
+            args = [
+                "/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "warning",
+                "-thread_queue_size", "512", "-f", "pulse", "-i", f"{nodes['headset']}.monitor",
+                "-thread_queue_size", "512", "-f", "pulse", "-i", nodes["mic_in"],
+                "-filter_complex", audio_filter, "-map", "[out]", "-ac", "2",
+                "-ar", str(self.config.sample_rate), "-c:a", "libopus",
+                "-b:a", self.config.recording_bitrate, "-f", "segment",
+                "-segment_time", str(self.config.recording_segment_seconds), str(output),
+            ]
+            self.processes["session"] = subprocess.Popen(
+                args, env=self.audio.environment(), stdout=subprocess.DEVNULL
+            )
+            self.store.mutate(lambda value: value.setdefault("recording", {}).update({"session": True}))
+            self.last_error = ""
+            LOG.info("Combined recording started")
+
+    def stop_recording(self) -> None:
+        with self._lock:
+            self.store.mutate(lambda value: value.setdefault("recording", {}).update({"session": False}))
+            self._stop_process(self.processes.pop("session", None))
+            self.recording_prefix = ""
+            LOG.info("Combined recording stopped")
+
+    def restart_recording_for_device_change(self) -> None:
+        """Reconnect an active/desired recording to newly assigned nodes."""
+        with self._lock:
+            desired = bool(self.store.get("recording", {}).get("session"))
+            self._stop_process(self.processes.pop("session", None))
+            self.recording_prefix = ""
+            if desired:
+                self.start_recording(requested_by_user=False)
+
+    def recording_active(self) -> bool:
+        with self._lock:
+            process = self.processes.get("session")
+            return bool(process and process.poll() is None)
+
+    def ensure_not_active_recording(self, path: Path) -> None:
+        if self.recording_active() and self.recording_prefix and path.name.startswith(self.recording_prefix):
+            raise HTTPException(409, "stop the active recording before modifying this file")
+
+    def poll(self) -> None:
+        """Update process state and retry desired recording after transient device loss."""
+        with self._lock:
+            for key, process in list(self.processes.items()):
+                code = process.poll()
+                if code is None:
+                    continue
+                self.processes.pop(key, None)
+                if key == "soundboard":
+                    self.store.update({"soundboard_playing": ""})
+                    if code != 0:
+                        self.last_error = f"Soundboard process exited with code {code}"
+                elif key == "session" and code != 0:
+                    self.last_error = f"Recording process exited with code {code}; retrying when possible"
+                LOG.warning("%s process exited with code %s", key, code)
+            desired = bool(self.store.get("recording", {}).get("session"))
+            if desired and not self.recording_active() and time.monotonic() - self.last_recording_retry >= 5:
+                self.last_recording_retry = time.monotonic()
+                try:
+                    self.start_recording(requested_by_user=False)
+                except Exception:
+                    LOG.exception("Unable to restart recording")
+
+    def cleanup_recordings(self) -> int:
+        """Delete oldest files by age and free-space policy."""
+        deleted = 0
+        now = time.time()
+        max_age = self.config.recording_max_age_days * 86400
+        files = sorted(self.config.recording_dir.rglob("*.opus"), key=lambda item: item.stat().st_mtime)
+        for path in list(files):
+            if max_age > 0 and now - path.stat().st_mtime > max_age:
+                self.ensure_not_active_recording(path)
+                path.unlink(missing_ok=True)
+                files.remove(path)
+                deleted += 1
+                LOG.info("Retention removed old recording: %s", path)
+        minimum = self.config.recording_min_free_gb * 1_000_000_000
+        for path in files:
+            usage = shutil.disk_usage(self.config.recording_dir)
+            usage_percent = usage.used * 100 / usage.total
+            enough_free = minimum <= 0 or usage.free >= minimum
+            below_maximum = (
+                self.config.recording_max_disk_usage_percent <= 0
+                or usage_percent <= self.config.recording_max_disk_usage_percent
+            )
+            if enough_free and below_maximum:
+                break
+            self.ensure_not_active_recording(path)
+            path.unlink(missing_ok=True)
+            deleted += 1
+            LOG.warning("Retention removed recording to recover disk space: %s", path)
+        return deleted
+
+    def stop_all(self) -> None:
+        with self._lock:
+            self._stop_process(self.processes.pop("soundboard", None))
+            self._stop_process(self.processes.pop("session", None))

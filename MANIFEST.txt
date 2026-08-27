@@ -13,17 +13,27 @@ Included:
   CONTRIBUTING.md
   .github/ISSUE_TEMPLATE/bug_report.md
   .github/ISSUE_TEMPLATE/feature_request.md
+  .github/workflows/tests.yml
   MANIFEST.txt
   opt/haudio/haudio_main.py
+  opt/haudio/haudio/__init__.py
+  opt/haudio/haudio/app.py
+  opt/haudio/haudio/audio.py
+  opt/haudio/haudio/config.py
+  opt/haudio/haudio/media.py
+  opt/haudio/haudio/state.py
   opt/haudio/frontend/index.html
   opt/haudio/frontend/app.js
   opt/haudio/frontend/style.css
-  etc/systemd/system/haudio-control.service
+  etc/systemd/user/haudio-control.service
+  etc/haudio/haudio.json
   etc/pipewire/pipewire.conf.d/haudio.conf
   docs/INSTALL.md
   docs/OPERATIONS.md
   docs/REFERENCE-SETUP.md
+  docs/CONFIGURATION.md
   docs/API.md
+  docs/ARCHITECTURE.md
   tests/test_haudio.py
   docs/images/WebInterface.png
 
@@ -33,6 +43,5 @@ Not included:
   - SSH private keys
   - Credentials or Wi-Fi secrets
 
-The application currently uses a single Python file with the web interface
-logic served from static frontend files. No separate frontend build
-environment is required.
+The backend is split into focused Python modules and serves a static,
+build-free frontend.
