@@ -24,7 +24,7 @@ from . import __version__
 from .audio import AudioController
 from .config import Config, load_config
 from .media import MediaManager, valid_recording_filename, valid_sound_filename
-from .state import PRESETS, StateStore
+from .state import DEFAULT_PRESETS, PRESET_KEYS, StateStore
 
 
 logging.basicConfig(
@@ -168,7 +168,9 @@ class Runtime:
         result = {
             "disk_free_gb": None, "cpu_load": None, "ram_used_percent": None,
             "temperature_c": None, "uptime_seconds": None,
-            "network_interface": "", "wlan_signal_dbm": None, "ip_addresses": [],
+            "network_interface": "", "connection_type": "", "primary_ip": "",
+            "wlan_connected": False, "wlan_primary": False,
+            "wlan_signal_dbm": None, "ip_addresses": [],
         }
         try:
             result["disk_free_gb"] = round(shutil.disk_usage(recording_dir).free / 1e9, 1)
@@ -194,11 +196,30 @@ class Runtime:
         except (OSError, ValueError):
             pass
         try:
+            routes = []
+            for line in Path("/proc/net/route").read_text().splitlines()[1:]:
+                fields = line.split()
+                if len(fields) >= 8 and fields[1] == "00000000":
+                    routes.append((int(fields[6]), fields[0]))
+            if routes:
+                result["network_interface"] = min(routes)[1]
+                wireless_path = Path("/sys/class/net") / result["network_interface"] / "wireless"
+                result["connection_type"] = "Wi-Fi" if wireless_path.exists() else "LAN"
+        except (OSError, ValueError):
+            pass
+        try:
             wireless = Path("/proc/net/wireless").read_text().splitlines()[2:]
-            if wireless:
-                fields = wireless[0].split()
-                result["network_interface"] = fields[0].rstrip(":")
-                result["wlan_signal_dbm"] = float(fields[3].rstrip("."))
+            for line in wireless:
+                fields = line.split()
+                interface = fields[0].rstrip(":")
+                operstate = (Path("/sys/class/net") / interface / "operstate").read_text().strip()
+                carrier_path = Path("/sys/class/net") / interface / "carrier"
+                carrier = carrier_path.read_text().strip() if carrier_path.exists() else "1"
+                if operstate == "up" and carrier == "1":
+                    result["wlan_connected"] = True
+                    result["wlan_primary"] = interface == result["network_interface"]
+                    result["wlan_signal_dbm"] = float(fields[3].rstrip("."))
+                    break
         except (OSError, IndexError, ValueError):
             pass
         try:
@@ -206,7 +227,8 @@ class Runtime:
             route_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             try:
                 route_socket.connect(("192.0.2.1", 9))
-                result["ip_addresses"].append(route_socket.getsockname()[0])
+                result["primary_ip"] = route_socket.getsockname()[0]
+                result["ip_addresses"].append(result["primary_ip"])
                 result["ip_addresses"] = sorted(set(result["ip_addresses"]))
             finally:
                 route_socket.close()
@@ -246,6 +268,7 @@ class Runtime:
             "levels": copy.deepcopy(self.meters.levels),
             "system": system,
             "devices": self.device_payload(cards),
+            "presets": {"mute_all_active": bool(current.get("mute_all_active"))},
             "errors": list(dict.fromkeys(errors)),
         }
 
@@ -402,12 +425,54 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
 
     @app.post("/api/preset/{name}")
     async def apply_preset(name: str):
-        if name not in PRESETS:
+        if name != "mute-all" and name not in DEFAULT_PRESETS:
             raise HTTPException(404, "preset not found")
-        runtime.store.update(PRESETS[name])
+        if name == "mute-all":
+            restore_keys = ("pc1_mute", "pc2_mute", "mic_mute", "mic_pc1", "mic_pc2")
+
+            def toggle_mute_all(current: dict) -> None:
+                if current.get("mute_all_active"):
+                    saved = current.get("mute_all_restore") or {}
+                    for key in restore_keys:
+                        if key in saved:
+                            current[key] = saved[key]
+                    current["mute_all_active"] = False
+                    current["mute_all_restore"] = {}
+                else:
+                    current["mute_all_restore"] = {key: current[key] for key in restore_keys}
+                    current.update({
+                        "pc1_mute": True, "pc2_mute": True, "mic_mute": True,
+                        "mic_pc1": False, "mic_pc2": False, "mute_all_active": True,
+                    })
+
+            runtime.store.mutate(toggle_mute_all)
+        else:
+            saved_presets = runtime.store.get("presets", {})
+            values = saved_presets.get(name, DEFAULT_PRESETS[name])
+            runtime.store.update({
+                **{key: values[key] for key in PRESET_KEYS if key in values},
+                "mute_all_active": False,
+                "mute_all_restore": {},
+            })
         await asyncio.to_thread(runtime.audio.apply_controls)
         LOG.info("Preset applied: %s", name)
         return await fresh_status()
+
+    @app.get("/api/presets")
+    async def presets():
+        return {"presets": runtime.store.get("presets", {})}
+
+    @app.post("/api/presets/{name}/save")
+    async def save_preset(name: str):
+        if name not in DEFAULT_PRESETS:
+            raise HTTPException(404, "editable preset not found")
+
+        def capture(current: dict) -> None:
+            current.setdefault("presets", {})[name] = {key: current[key] for key in PRESET_KEYS}
+
+        saved = runtime.store.mutate(capture)["presets"][name]
+        LOG.info("Preset saved: %s", name)
+        return {"name": name, "values": saved}
 
     @app.get("/api/soundboard")
     async def soundboard():

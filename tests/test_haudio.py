@@ -113,10 +113,13 @@ class FakeAudio:
         self.store.update({key: value})
 
     def set_mute(self, target, value):
-        self.store.update({f"{target}_mute": value})
+        self.store.update({f"{target}_mute": value, "mute_all_active": False, "mute_all_restore": {}})
 
     def set_route(self, target, value):
-        self.store.update({f"mic_{target}": value})
+        changes = {f"mic_{target}": value, "mute_all_active": False, "mute_all_restore": {}}
+        if value:
+            changes["mic_mute"] = False
+        self.store.update(changes)
 
     def reconcile_graph(self):
         return True
@@ -164,7 +167,9 @@ class FakeRuntime:
                            "route_pc1": state["mic_pc1"], "route_pc2": state["mic_pc2"]},
             "recording": {"session": False}, "soundboard": self.media.soundboard_status(),
             "levels": {}, "system": {"pipewire": True, "graph_ready": True},
-            "devices": self.device_payload(), "errors": [],
+            "devices": self.device_payload(),
+            "presets": {"mute_all_active": state.get("mute_all_active", False)},
+            "errors": [],
         }
 
     async def refresh_status(self):
@@ -215,6 +220,72 @@ def test_preset_updates_routes_and_mutes(tmp_path):
         assert payload["pc2"]["mute"] is True
         assert payload["microphone"]["route_pc1"] is True
         assert payload["microphone"]["route_pc2"] is False
+
+
+def test_mute_all_restores_previous_state(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
+    )
+    runtime = FakeRuntime(config)
+    runtime.store.update({
+        "pc1_mute": False, "pc2_mute": True, "mic_mute": False,
+        "mic_pc1": False, "mic_pc2": True,
+    })
+    app = create_app(config, runtime)
+    with TestClient(app) as client:
+        muted = client.post("/api/preset/mute-all").json()
+        assert muted["pc1"]["mute"] is True
+        assert muted["pc2"]["mute"] is True
+        assert muted["microphone"]["mute"] is True
+        assert muted["presets"]["mute_all_active"] is True
+
+        restored = client.post("/api/preset/mute-all").json()
+        assert restored["pc1"]["mute"] is False
+        assert restored["pc2"]["mute"] is True
+        assert restored["microphone"]["mute"] is False
+        assert restored["microphone"]["route_pc1"] is False
+        assert restored["microphone"]["route_pc2"] is True
+        assert restored["presets"]["mute_all_active"] is False
+
+
+def test_enabling_microphone_route_clears_global_mute(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
+    )
+    runtime = FakeRuntime(config)
+    runtime.store.update({"mic_mute": True, "mic_pc1": False})
+    app = create_app(config, runtime)
+    with TestClient(app) as client:
+        response = client.post("/api/mic/route/pc1", json={"value": True})
+        assert response.status_code == 200
+        assert response.json()["microphone"]["mute"] is False
+        assert response.json()["microphone"]["route_pc1"] is True
+
+
+def test_current_mix_can_be_saved_as_persistent_preset(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
+    )
+    runtime = FakeRuntime(config)
+    runtime.store.update({"pc1_volume": 33, "mic_volume": 44, "mic_pc2": False})
+    app = create_app(config, runtime)
+    with TestClient(app) as client:
+        saved = client.post("/api/presets/meeting/save")
+        assert saved.status_code == 200
+        assert saved.json()["values"]["pc1_volume"] == 33
+        assert saved.json()["values"]["mic_volume"] == 44
+        runtime.store.update({"pc1_volume": 99, "mic_volume": 99, "mic_pc2": True})
+        applied = client.post("/api/preset/meeting").json()
+        assert applied["pc1"]["volume"] == 33
+        assert applied["microphone"]["volume"] == 44
+        assert applied["microphone"]["route_pc2"] is False
+
+    restored = StateStore(config.state_file)
+    restored.load()
+    assert restored.get("presets")["meeting"]["pc1_volume"] == 33
 
 
 def test_frontend_is_complete_and_uses_stable_dom_updates(tmp_path):

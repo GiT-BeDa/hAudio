@@ -152,6 +152,8 @@ function applyStatus(status) {
   const recordingIndicator = byId('recording-indicator');
   recordingIndicator.className = `recording-indicator ${recording ? 'active' : 'inactive'}`;
   recordingIndicator.textContent = recording ? '● RECORDING ACTIVE' : '○ NOT RECORDING';
+  const muteAllActive = Boolean(status.presets?.mute_all_active);
+  setButton(document.querySelector('[data-preset="mute-all"]'), muteAllActive, 'RESTORE AUDIO', 'MUTE ALL', 'danger');
 
   const playing = status.soundboard?.active ? status.soundboard.playing : '';
   byId('soundboard-status').textContent = playing ? `Playing: ${playing}` : '';
@@ -164,8 +166,10 @@ function applyStatus(status) {
   byId('system-ram').textContent = Number.isFinite(system.ram_used_percent) ? `${system.ram_used_percent}%` : '–';
   byId('system-temperature').textContent = Number.isFinite(system.temperature_c) ? `${system.temperature_c} °C` : '–';
   byId('system-uptime').textContent = formatUptime(system.uptime_seconds);
-  byId('system-network').textContent = [system.network_interface, ...(system.ip_addresses || [])].filter(Boolean).join(' · ') || '–';
-  byId('system-wifi').textContent = Number.isFinite(system.wlan_signal_dbm) ? `${system.wlan_signal_dbm} dBm` : '–';
+  byId('system-network').textContent = [system.connection_type, system.network_interface, system.primary_ip].filter(Boolean).join(' · ') || '–';
+  byId('system-wifi').textContent = system.wlan_connected
+    ? `${system.wlan_primary ? 'PRIMARY' : 'SECONDARY'} · ${system.wlan_signal_dbm ?? '–'} dBm`
+    : 'DISCONNECTED';
   const graph = byId('graph-state');
   graph.className = `device-state ${system.graph_ready ? 'on' : 'off'}`;
   graph.textContent = system.graph_ready ? '● AUDIO GRAPH READY' : '● AUDIO GRAPH DEGRADED';
@@ -190,6 +194,13 @@ function queueVolume(name, value) {
       if (ui.volumeSequences.get(name) === sequence) ui.pendingVolumes.delete(name);
     }
   }, 180));
+}
+
+async function waitForPendingVolumes() {
+  const deadline = Date.now() + 3000;
+  while (ui.pendingVolumes.size && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 async function refreshStatus() {
@@ -396,6 +407,19 @@ function bindControls() {
       }
     });
   }
+  byId('preset-save').addEventListener('click', async () => {
+    const button = byId('preset-save');
+    const name = byId('preset-save-target').value;
+    button.disabled = true;
+    byId('preset-status').textContent = 'Saving…';
+    try {
+      await waitForPendingVolumes();
+      await post(`/api/presets/${name}/save`);
+      byId('preset-status').textContent = 'Saved.';
+    } finally {
+      button.disabled = false;
+    }
+  });
   for (const name of ['pc1', 'pc2', 'headset', 'mic', 'soundboard']) {
     byId(`${name}-volume`).addEventListener('input', (event) => queueVolume(name, event.target.value));
   }

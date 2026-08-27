@@ -14,6 +14,38 @@ from typing import Any, Callable
 
 LOG = logging.getLogger("haudio.state")
 
+PRESET_KEYS = (
+    "pc1_volume", "pc2_volume", "headset_volume", "mic_volume", "soundboard_volume",
+    "pc1_mute", "pc2_mute", "mic_mute", "mic_pc1", "mic_pc2",
+)
+
+DEFAULT_PRESETS: dict[str, dict[str, Any]] = {
+    "normal": {
+        "pc1_volume": 70, "pc2_volume": 70, "headset_volume": 65,
+        "mic_volume": 50, "soundboard_volume": 100,
+        "pc1_mute": False, "pc2_mute": False, "mic_mute": False,
+        "mic_pc1": True, "mic_pc2": True,
+    },
+    "pc1-only": {
+        "pc1_volume": 70, "pc2_volume": 70, "headset_volume": 65,
+        "mic_volume": 50, "soundboard_volume": 100,
+        "pc1_mute": False, "pc2_mute": True, "mic_mute": False,
+        "mic_pc1": True, "mic_pc2": False,
+    },
+    "pc2-only": {
+        "pc1_volume": 70, "pc2_volume": 70, "headset_volume": 65,
+        "mic_volume": 50, "soundboard_volume": 100,
+        "pc1_mute": True, "pc2_mute": False, "mic_mute": False,
+        "mic_pc1": False, "mic_pc2": True,
+    },
+    "meeting": {
+        "pc1_volume": 60, "pc2_volume": 60, "headset_volume": 65,
+        "mic_volume": 50, "soundboard_volume": 100,
+        "pc1_mute": False, "pc2_mute": False, "mic_mute": False,
+        "mic_pc1": True, "mic_pc2": True,
+    },
+}
+
 DEFAULT_STATE: dict[str, Any] = {
     "pc1_volume": 70,
     "pc2_volume": 70,
@@ -28,29 +60,9 @@ DEFAULT_STATE: dict[str, Any] = {
     "recording": {"session": False},
     "assignments": {},
     "soundboard_playing": "",
-}
-
-PRESETS: dict[str, dict[str, Any]] = {
-    "normal": {
-        "pc1_volume": 70, "pc2_volume": 70, "pc1_mute": False, "pc2_mute": False,
-        "mic_mute": False, "mic_pc1": True, "mic_pc2": True,
-    },
-    "pc1-only": {
-        "pc1_volume": 70, "pc1_mute": False, "pc2_mute": True,
-        "mic_mute": False, "mic_pc1": True, "mic_pc2": False,
-    },
-    "pc2-only": {
-        "pc2_volume": 70, "pc1_mute": True, "pc2_mute": False,
-        "mic_mute": False, "mic_pc1": False, "mic_pc2": True,
-    },
-    "meeting": {
-        "pc1_volume": 60, "pc2_volume": 60, "pc1_mute": False, "pc2_mute": False,
-        "mic_mute": False, "mic_pc1": True, "mic_pc2": True,
-    },
-    "mute-all": {
-        "pc1_mute": True, "pc2_mute": True, "mic_mute": True,
-        "mic_pc1": False, "mic_pc2": False,
-    },
+    "mute_all_active": False,
+    "mute_all_restore": {},
+    "presets": copy.deepcopy(DEFAULT_PRESETS),
 }
 
 
@@ -72,6 +84,12 @@ class StateStore:
                 LOG.exception("Unable to load state from %s; defaults remain active", self.path)
             self._state.setdefault("assignments", {})
             self._state.setdefault("recording", {"session": False})
+            presets = self._state.setdefault("presets", {})
+            if not isinstance(presets, dict):
+                self._state["presets"] = copy.deepcopy(DEFAULT_PRESETS)
+            else:
+                for name, values in DEFAULT_PRESETS.items():
+                    presets.setdefault(name, copy.deepcopy(values))
             self._state["soundboard_playing"] = ""
 
     def snapshot(self) -> dict[str, Any]:

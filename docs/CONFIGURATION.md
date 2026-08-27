@@ -37,3 +37,15 @@ overridden with environment variables such as `HAUDIO_RECORDING_BITRATE`,
 Unknown configuration keys stop startup with an explicit error instead of
 being silently ignored. Restart `haudio-control.service` after changing the
 configuration.
+
+## Editable presets
+
+Set the desired volumes, mute states, and microphone routes in the web
+interface. Select `NORMAL`, `PC1 ONLY`, `PC2 ONLY`, or `MEETING` next to “Save
+current as” and press `SAVE CURRENT`. The complete mix is stored under
+`presets` in `/var/lib/haudio/state.json` and survives service restarts and
+reboots.
+
+`MUTE ALL` is intentionally not saved as a normal preset. It temporarily saves
+the current mute/routing state and changes its label to `RESTORE AUDIO`. Press
+it again to restore that saved state.

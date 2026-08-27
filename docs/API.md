@@ -39,8 +39,17 @@ route values are booleans.
 ## Presets
 
 Apply a preset with `POST /api/preset/{name}`. Available names are `normal`,
-`pc1-only`, `pc2-only`, `meeting`, and `mute-all`. Presets update audio
-controls but do not implicitly start or stop recording.
+`pc1-only`, `pc2-only`, `meeting`, and `mute-all`. `mute-all` is a toggle: the
+first request mutes all routes and the next request restores the exact previous
+mute and routing state.
+
+`GET /api/presets` returns the persistently saved editable presets. Save the
+current volumes, mutes, and microphone routes with
+`POST /api/presets/{name}/save`, where `{name}` is `normal`, `pc1-only`,
+`pc2-only`, or `meeting`. Presets do not start or stop recording.
+
+Activating a microphone route with `POST /api/mic/route/{computer}` also clears
+global microphone mute so the newly activated route is immediately usable.
 
 ## Soundboard
 

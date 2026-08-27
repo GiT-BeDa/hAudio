@@ -37,6 +37,10 @@ The web status footer distinguishes between PipeWire being reachable and the
 hAudio graph being complete. An unassigned role is allowed; routes for other
 assigned devices continue to be monitored and repaired.
 
+The network footer shows the interface selected by the lowest-metric default
+route as the primary connection. A simultaneously associated Wi-Fi interface
+is shown as `SECONDARY`, not as the primary transport.
+
 ## USB reconnection
 
 hAudio identifies USB audio cards by `device.bus_path`. Sources and sinks are

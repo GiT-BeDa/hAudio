@@ -85,7 +85,8 @@ assignment protection, and the complete static frontend.
 
 The responsive web interface provides independent computer volume and mute
 controls, microphone routing, live level meters, recording management,
-hardware assignment, and a soundboard.
+hardware assignment, editable persistent presets, and a soundboard. `MUTE ALL`
+restores the previous mute/routing state when pressed a second time.
 
 ![hAudio web interface](docs/images/WebInterface.png)
 

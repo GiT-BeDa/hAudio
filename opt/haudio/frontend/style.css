@@ -71,6 +71,10 @@ h2 { margin-bottom: 0; font-size: 19px; letter-spacing: .025em; }
 }
 .preset-bar > span { margin: 0 5px; color: var(--muted); font-size: 12px; font-weight: 800; }
 .preset-bar .button { flex: 0 0 auto; min-height: 34px; padding: 7px 10px; font-size: 13px; }
+.preset-spacer { flex: 1 0 12px; }
+.preset-save-label { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
+#preset-save-target { width: auto; min-width: 118px; min-height: 34px; padding: 5px 8px; }
+#preset-status { flex: 0 0 auto; color: var(--green); font-size: 12px; font-weight: 700; }
 
 .two-column, .headset-grid {
   display: grid;

@@ -25,6 +25,16 @@
     <button class="button" type="button" data-preset="pc2-only">PC2 ONLY</button>
     <button class="button" type="button" data-preset="meeting">MEETING</button>
     <button class="button danger" type="button" data-preset="mute-all">MUTE ALL</button>
+    <span class="preset-spacer"></span>
+    <label class="preset-save-label" for="preset-save-target">Save current as</label>
+    <select id="preset-save-target">
+      <option value="normal">NORMAL</option>
+      <option value="pc1-only">PC1 ONLY</option>
+      <option value="pc2-only">PC2 ONLY</option>
+      <option value="meeting">MEETING</option>
+    </select>
+    <button id="preset-save" class="button" type="button">SAVE CURRENT</button>
+    <span id="preset-status" role="status"></span>
   </nav>
 
   <main>
@@ -110,8 +120,8 @@
       <div class="metric">RAM used<strong id="system-ram">–</strong></div>
       <div class="metric">Temperature<strong id="system-temperature">–</strong></div>
       <div class="metric">Uptime<strong id="system-uptime">–</strong></div>
-      <div class="metric">Network<strong id="system-network">–</strong></div>
-      <div class="metric">Wi-Fi signal<strong id="system-wifi">–</strong></div>
+      <div class="metric">Primary connection<strong id="system-network">–</strong></div>
+      <div class="metric">Wi-Fi<strong id="system-wifi">–</strong></div>
     </div>
   </footer>
 

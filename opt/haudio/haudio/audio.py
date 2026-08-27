@@ -280,11 +280,14 @@ class AudioController:
         LOG.info("%s volume changed to %s", target, value)
 
     def set_mute(self, target: str, value: bool) -> None:
-        self.store.update({f"{target}_mute": value})
+        self.store.update({f"{target}_mute": value, "mute_all_active": False, "mute_all_restore": {}})
         self.apply_controls()
         LOG.info("%s mute changed to %s", target, value)
 
     def set_route(self, target: str, value: bool) -> None:
-        self.store.update({f"mic_{target}": value})
+        changes = {f"mic_{target}": value, "mute_all_active": False, "mute_all_restore": {}}
+        if value:
+            changes["mic_mute"] = False
+        self.store.update(changes)
         self.apply_controls()
         LOG.info("Microphone route to %s changed to %s", target, value)
