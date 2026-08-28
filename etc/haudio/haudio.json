@@ -6,5 +6,10 @@
   "recording_max_age_days": 30,
   "recording_max_disk_usage_percent": 90.0,
   "recording_min_free_gb": 5.0,
-  "soundboard_max_bytes": 209715200
+  "soundboard_max_bytes": 209715200,
+  "status_interval_seconds": 5.0,
+  "websocket_interval_seconds": 0.25,
+  "device_health_interval_seconds": 30.0,
+  "meter_enabled": true,
+  "meter_sample_rate": 8000
 }

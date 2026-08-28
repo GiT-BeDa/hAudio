@@ -18,7 +18,6 @@ from .audio import AudioController
 from .config import Config
 from .state import StateStore
 
-
 LOG = logging.getLogger("haudio.media")
 
 
@@ -39,6 +38,7 @@ class MediaManager:
         self.audio = audio
         self._lock = threading.RLock()
         self.processes: dict[str, subprocess.Popen] = {}
+        self.process_logs: dict[str, BinaryIO] = {}
         self.recording_prefix = ""
         self.recording_playback_path = ""
         self.last_error = ""
@@ -67,13 +67,17 @@ class MediaManager:
             for path in sorted(self.config.soundboard_dir.glob("*.mp3"), key=lambda item: item.name.lower())
         ]
 
-    def recording_files(self) -> list[dict]:
+    def recording_files(self, limit: int | None = None, offset: int = 0) -> list[dict]:
         playback = self.recording_playback_status()
         files = sorted(
             self.config.recording_dir.rglob("*.opus"),
             key=lambda item: item.stat().st_mtime,
             reverse=True,
         )
+        if offset:
+            files = files[offset:]
+        if limit is not None:
+            files = files[:limit]
         return [
             {
                 "path": str(path.relative_to(self.config.recording_dir)),
@@ -85,6 +89,9 @@ class MediaManager:
             }
             for path in files
         ]
+
+    def recording_count(self) -> int:
+        return sum(1 for _ in self.config.recording_dir.rglob("*.opus"))
 
     def validate_mp3(self, path: Path) -> bool:
         result = self.audio.run(
@@ -99,6 +106,8 @@ class MediaManager:
         if not valid_sound_filename(original):
             raise HTTPException(400, "only MP3 files with a safe filename are allowed")
         target = self.config.soundboard_dir / original
+        if target.exists():
+            raise HTTPException(409, "a soundboard file with this name already exists")
         temporary: Path | None = None
         total = 0
         try:
@@ -133,26 +142,58 @@ class MediaManager:
             process.kill()
             process.wait()
 
+    def _spawn(self, key: str, args: list[str]) -> subprocess.Popen:
+        error_log = tempfile.TemporaryFile(mode="w+b")
+        try:
+            process = subprocess.Popen(
+                args,
+                env=self.audio.environment(),
+                stdout=subprocess.DEVNULL,
+                stderr=error_log,
+            )
+        except Exception:
+            error_log.close()
+            raise
+        self.processes[key] = process
+        self.process_logs[key] = error_log
+        return process
+
+    def _read_process_log(self, key: str) -> str:
+        handle = self.process_logs.pop(key, None)
+        if not handle:
+            return ""
+        try:
+            handle.flush()
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - 8192))
+            value = handle.read().decode(errors="replace").strip()
+            return " | ".join(line.strip() for line in value.splitlines()[-3:] if line.strip())
+        finally:
+            handle.close()
+
+    def _stop_named_process(self, key: str) -> None:
+        self._stop_process(self.processes.pop(key, None))
+        self._read_process_log(key)
+
     def play(self, name: str) -> None:
         path = self.soundboard_path(name)
         with self._lock:
-            self._stop_process(self.processes.pop("soundboard", None))
+            self._stop_named_process("soundboard")
             args = [
                 "/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "warning", "-re", "-i", str(path),
                 "-vn", "-af", "apad=pad_dur=2", "-ac", "2", "-ar", str(self.config.sample_rate),
                 "-flush_packets", "1", "-f", "pulse", "-buffer_duration", "2000",
                 "-device", "HAUDIO_SOUNDBOARD", "-",
             ]
-            self.processes["soundboard"] = subprocess.Popen(
-                args, env=self.audio.environment(), stdout=subprocess.DEVNULL
-            )
+            self._spawn("soundboard", args)
             self.store.update({"soundboard_playing": name})
             self.last_error = ""
             LOG.info("Soundboard playback started: %s", name)
 
     def stop_soundboard(self) -> None:
         with self._lock:
-            self._stop_process(self.processes.pop("soundboard", None))
+            self._stop_named_process("soundboard")
             self.store.update({"soundboard_playing": ""})
             LOG.info("Soundboard playback stopped")
 
@@ -174,32 +215,45 @@ class MediaManager:
             if process and process.poll() is None:
                 return
             nodes = self.audio.nodes()
-            if not nodes["headset"] or not nodes["mic_in"]:
+            headset = nodes["headset"]
+            microphone = nodes["mic_in"]
+            microphone_required = not self.store.get("mic_mute")
+            if not headset or (microphone_required and not microphone):
                 if requested_by_user:
-                    raise HTTPException(409, "headset and microphone must be assigned before recording")
+                    detail = "a headset must be assigned before recording"
+                    if headset and microphone_required:
+                        detail = "a microphone must be assigned before recording while it is unmuted"
+                    raise HTTPException(409, detail)
                 return
             directory = self.config.recording_dir / time.strftime("%Y-%m-%d")
             directory.mkdir(parents=True, exist_ok=True)
             self.recording_prefix = time.strftime("%Y-%m-%d_%H-%M-%S_headset-session")
             output = directory / f"{self.recording_prefix}.%03d.opus"
-            audio_filter = (
-                "[0:a]aresample=48000[a];"
-                "[1:a]aresample=48000,volume=0.70,pan=stereo|c0=c0|c1=c0[b];"
-                "[a][b]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,"
-                "alimiter=limit=0.95[out]"
-            )
             args = [
                 "/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "warning",
-                "-thread_queue_size", "512", "-f", "pulse", "-i", f"{nodes['headset']}.monitor",
-                "-thread_queue_size", "512", "-f", "pulse", "-i", nodes["mic_in"],
+                "-thread_queue_size", "512", "-f", "pulse", "-i", f"{headset}.monitor",
+            ]
+            if self.store.get("mic_mute"):
+                audio_filter = f"[0:a]aresample={self.config.sample_rate},alimiter=limit=0.95[out]"
+            else:
+                assert microphone is not None
+                args.extend([
+                    "-thread_queue_size", "512", "-f", "pulse", "-i", microphone,
+                ])
+                audio_filter = (
+                    f"[0:a]aresample={self.config.sample_rate}[a];"
+                    f"[1:a]aresample={self.config.sample_rate},volume=0.70,"
+                    "pan=stereo|c0=c0|c1=c0[b];"
+                    "[a][b]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,"
+                    "alimiter=limit=0.95[out]"
+                )
+            args.extend([
                 "-filter_complex", audio_filter, "-map", "[out]", "-ac", "2",
                 "-ar", str(self.config.sample_rate), "-c:a", "libopus",
                 "-b:a", self.config.recording_bitrate, "-f", "segment",
                 "-segment_time", str(self.config.recording_segment_seconds), str(output),
-            ]
-            self.processes["session"] = subprocess.Popen(
-                args, env=self.audio.environment(), stdout=subprocess.DEVNULL
-            )
+            ])
+            self._spawn("session", args)
             self.store.mutate(lambda value: value.setdefault("recording", {}).update({"session": True}))
             self.last_error = ""
             LOG.info("Combined recording started")
@@ -207,7 +261,7 @@ class MediaManager:
     def stop_recording(self) -> None:
         with self._lock:
             self.store.mutate(lambda value: value.setdefault("recording", {}).update({"session": False}))
-            self._stop_process(self.processes.pop("session", None))
+            self._stop_named_process("session")
             self.recording_prefix = ""
             LOG.info("Combined recording stopped")
 
@@ -215,7 +269,7 @@ class MediaManager:
         """Reconnect an active/desired recording to newly assigned nodes."""
         with self._lock:
             desired = bool(self.store.get("recording", {}).get("session"))
-            self._stop_process(self.processes.pop("session", None))
+            self._stop_named_process("session")
             self.recording_prefix = ""
             if desired:
                 self.start_recording(requested_by_user=False)
@@ -232,23 +286,21 @@ class MediaManager:
         if not nodes["headset"]:
             raise HTTPException(409, "a headset must be assigned before playback")
         with self._lock:
-            self._stop_process(self.processes.pop("recording-playback", None))
+            self._stop_named_process("recording-playback")
             args = [
                 "/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "warning", "-re", "-i", str(path),
                 "-vn", "-ac", "2", "-ar", str(self.config.sample_rate),
                 "-flush_packets", "1", "-f", "pulse", "-buffer_duration", "2000",
                 "-device", nodes["headset"], "-",
             ]
-            self.processes["recording-playback"] = subprocess.Popen(
-                args, env=self.audio.environment(), stdout=subprocess.DEVNULL
-            )
+            self._spawn("recording-playback", args)
             self.recording_playback_path = str(path.relative_to(self.config.recording_dir))
             self.last_error = ""
             LOG.info("Recording playback started on headset: %s", self.recording_playback_path)
 
     def stop_recording_playback(self) -> None:
         with self._lock:
-            self._stop_process(self.processes.pop("recording-playback", None))
+            self._stop_named_process("recording-playback")
             self.recording_playback_path = ""
             LOG.info("Recording playback stopped")
 
@@ -275,6 +327,13 @@ class MediaManager:
         if playback["active"] and playback["path"] == relative:
             raise HTTPException(409, "stop playback before modifying this file")
 
+    def recording_in_use(self, path: Path) -> bool:
+        try:
+            self.ensure_recording_not_in_use(path)
+        except HTTPException:
+            return True
+        return False
+
     def poll(self) -> None:
         """Update process state and retry desired recording after transient device loss."""
         with self._lock:
@@ -283,18 +342,20 @@ class MediaManager:
                 if code is None:
                     continue
                 self.processes.pop(key, None)
+                details = self._read_process_log(key)
+                suffix = f": {details}" if details else ""
                 if key == "soundboard":
                     self.store.update({"soundboard_playing": ""})
                     if code != 0:
-                        self.last_error = f"Soundboard process exited with code {code}"
+                        self.last_error = f"Soundboard process exited with code {code}{suffix}"
                 elif key == "session" and code != 0:
-                    self.last_error = f"Recording process exited with code {code}; retrying when possible"
+                    self.last_error = f"Recording process exited with code {code}{suffix}; retrying when possible"
                 elif key == "recording-playback":
                     self.recording_playback_path = ""
                     if code != 0:
-                        self.last_error = f"Recording playback exited with code {code}"
+                        self.last_error = f"Recording playback exited with code {code}{suffix}"
                 log = LOG.info if code == 0 else LOG.warning
-                log("%s process exited with code %s", key, code)
+                log("%s process exited with code %s%s", key, code, suffix)
             desired = bool(self.store.get("recording", {}).get("session"))
             if desired and not self.recording_active() and time.monotonic() - self.last_recording_retry >= 5:
                 self.last_recording_retry = time.monotonic()
@@ -311,7 +372,9 @@ class MediaManager:
         files = sorted(self.config.recording_dir.rglob("*.opus"), key=lambda item: item.stat().st_mtime)
         for path in list(files):
             if max_age > 0 and now - path.stat().st_mtime > max_age:
-                self.ensure_recording_not_in_use(path)
+                if self.recording_in_use(path):
+                    LOG.info("Retention skipped recording in use: %s", path)
+                    continue
                 path.unlink(missing_ok=True)
                 files.remove(path)
                 deleted += 1
@@ -327,7 +390,9 @@ class MediaManager:
             )
             if enough_free and below_maximum:
                 break
-            self.ensure_recording_not_in_use(path)
+            if self.recording_in_use(path):
+                LOG.info("Retention skipped recording in use: %s", path)
+                continue
             path.unlink(missing_ok=True)
             deleted += 1
             LOG.warning("Retention removed recording to recover disk space: %s", path)
@@ -335,7 +400,7 @@ class MediaManager:
 
     def stop_all(self) -> None:
         with self._lock:
-            self._stop_process(self.processes.pop("soundboard", None))
-            self._stop_process(self.processes.pop("session", None))
-            self._stop_process(self.processes.pop("recording-playback", None))
+            self._stop_named_process("soundboard")
+            self._stop_named_process("session")
+            self._stop_named_process("recording-playback")
             self.recording_playback_path = ""

@@ -213,6 +213,7 @@ select {
 .file-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .icon-button { width: 39px; min-height: 36px; padding: 7px; font-size: 17px; }
 .empty { margin: 14px 0 0; color: var(--muted); }
+.load-more { width: 100%; margin-top: 12px; }
 
 .system-footer { margin-top: 20px; background: transparent; }
 .system-errors { margin: 0 0 12px; }

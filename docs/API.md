@@ -12,6 +12,9 @@ All state-changing endpoints use `POST` with a JSON body unless noted
 otherwise. Audio control endpoints generally return the current system state;
 device, preset-save, and media endpoints return their resource-specific state.
 Errors are JSON objects such as `{"detail":"invalid volume"}`.
+When optional Basic authentication is enabled, all UI, API, download, and
+WebSocket requests require the configured credentials. Health endpoints remain
+available without credentials for service supervision.
 
 Quick examples:
 
@@ -32,6 +35,8 @@ curl --fail -X POST http://<raspberry-pi-address>:8765/api/pc1/volume \
 
 Volume values are integer percentages from 0 to 100. Mute and microphone
 route values are booleans.
+The `controls` object in `/api/status` reports which desired controls were most
+recently confirmed by PipeWire. A failed control also appears in `errors`.
 
 ## Audio controls
 
@@ -88,7 +93,7 @@ segmented Opus session.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/recordings` | List recordings. |
+| `GET` | `/api/recordings?limit=100&offset=0` | List a bounded recording page as `{files,total,limit,offset}`; maximum limit is 500. |
 | `POST` | `/api/recording/toggle` | Start or stop the combined recording. |
 | `POST` | `/api/recording/session/start` | Start recording explicitly. |
 | `POST` | `/api/recording/session/stop` | Stop recording explicitly. |
@@ -107,6 +112,17 @@ different recording replaces the current playback.
 An active recording segment cannot be played, renamed, or deleted. A recording
 that is currently playing cannot be renamed or deleted. These requests return
 `409`; stop the relevant operation first.
+
+Global Mic Mute is also a recording privacy control. A muted recording segment
+contains headset output but no microphone input. Changing Mic Mute while a
+session is active rotates to a new segment.
+
+## Health checks
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/health/live` | Process liveness and version; returns `200` while the backend responds. |
+| `GET` | `/health/ready` | Audio readiness; returns `503` while the assigned graph is degraded. |
 
 ## Live updates
 
@@ -129,8 +145,10 @@ Example:
 }
 ```
 
-The API currently has no authentication or HTTPS. Expose it only to a trusted
-local network until access control and TLS are added.
+The API has no built-in HTTPS. Optional Basic authentication is described in
+[CONFIGURATION.md](CONFIGURATION.md), but it is not a substitute for transport
+encryption. Expose the service only to a trusted local network or through a
+VPN/TLS tunnel.
 
 For `{name}` and `{path}`, URL-encode special characters before placing them
 in the request URL. For example, a space becomes `%20`.

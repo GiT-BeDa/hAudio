@@ -2,9 +2,10 @@
 
 ## Scope
 
-hAudio 0.02 is intended for a trusted local network. Version 0.02 does not
-provide user authentication or HTTPS. The web interface and API listen on
-port 8765 and can control audio, recordings, and uploaded sound files.
+hAudio 0.02 is intended for a trusted local network. Version 0.02 provides
+optional HTTP Basic authentication but no built-in HTTPS. The web interface
+and API listen on port 8765 and can control audio, recordings, and uploaded
+sound files.
 
 Do not expose the port directly to the internet or forward it from a router.
 Use a firewall, VPN, or an SSH tunnel when access outside the trusted LAN is
@@ -14,6 +15,11 @@ Browser WebSocket connections are restricted to the same host as the web
 interface, uploaded files are size-limited and validated as MP3 audio, and
 filenames are confined to their configured storage directories. These checks
 do not replace authentication for untrusted networks.
+
+Optional HTTP Basic authentication can be enabled with environment-only
+credentials as described in `docs/CONFIGURATION.md`. It protects controls and
+downloads but does not encrypt credentials or recordings. Use a VPN, SSH tunnel,
+or TLS termination whenever traffic crosses an untrusted network.
 
 ## Reporting a vulnerability
 

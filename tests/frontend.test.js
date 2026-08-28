@@ -163,6 +163,7 @@ test('microphone routes are not shown active while globally muted', () => {
   assert.equal(pc2.attributes['aria-pressed'], 'false');
   assert.equal(document.getElementById('microphone-meter').style.width, '0%');
   assert.equal(document.getElementById('microphone-level').textContent, '-60.0 dB');
+  assert.equal(document.getElementById('microphone-meter').attributes['aria-valuenow'], '-60.0');
   assert.equal(frontend.nextMicrophoneRouteValue({mute: true, route_pc1: true}, 'pc1'), true);
   assert.equal(frontend.nextMicrophoneRouteValue({mute: false, route_pc1: true}, 'pc1'), false);
   assert.equal(frontend.nextMicrophoneRouteValue({mute: false, route_pc1: false}, 'pc1'), true);
@@ -189,6 +190,11 @@ test('remote updates do not move a slider while it is active or pending', () => 
   assert.equal(document.getElementById('pc1-volume-value').textContent, '75%');
 });
 
+test('synthetic slider restoration is never sent as a user control change', () => {
+  assert.equal(frontend.shouldHandleVolumeInput({isTrusted: false}), false);
+  assert.equal(frontend.shouldHandleVolumeInput({isTrusted: true}), true);
+});
+
 test('recording rows expose a headset play and stop toggle', () => {
   global.document = createDocument();
   frontend.ui.recordings = [{
@@ -213,4 +219,37 @@ test('recording rows expose a headset play and stop toggle', () => {
   assert.equal(playback.textContent, '■');
   assert.equal(playback.className, 'icon-button danger');
   assert.equal(playback.attributes['aria-label'], 'Stop session.opus');
+});
+
+test('long recording lists are presented in bounded pages', () => {
+  global.document = createDocument();
+  frontend.ui.recordings = [{
+    path: '2026-08-28/session.opus',
+    name: 'session.opus',
+    size: 1024,
+    active: false,
+    playing: false,
+  }];
+  frontend.ui.recordingsTotal = 250;
+
+  frontend.renderRecordings();
+
+  const list = document.getElementById('recording-list');
+  const more = list.children[list.children.length - 1];
+  assert.equal(more.textContent, 'LOAD MORE (1 OF 250)');
+  assert.equal(more.className, 'button load-more');
+});
+
+test('currently playing sound uses a red stop control in its row', () => {
+  global.document = createDocument();
+  frontend.ui.sounds = [{name: 'alert.mp3', size: 1024}];
+  frontend.ui.soundboardPlaying = 'alert.mp3';
+
+  frontend.renderSounds();
+
+  const row = document.getElementById('soundboard-list').children[0];
+  const playback = row.children[1].children[0];
+  assert.equal(playback.textContent, '■');
+  assert.equal(playback.className, 'icon-button danger');
+  assert.equal(playback.attributes['aria-label'], 'Stop alert.mp3');
 });

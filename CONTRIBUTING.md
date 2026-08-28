@@ -3,17 +3,18 @@
 Issues and pull requests are welcome. Please keep changes focused on stable,
 low-latency audio operation and explain how the change was tested.
 
-Before submitting a pull request:
+Before submitting a pull request, install `requirements-dev-tested.txt`, run
+`npm ci`, and then:
 
-1. Run `python3 -m py_compile opt/haudio/haudio_main.py`.
-2. Run `pytest -q`.
-3. Run `node --check opt/haudio/frontend/app.js` and
-   `node --test tests/frontend.test.js` when changing the frontend.
-4. Check that documentation and the manifest describe new or removed files.
-5. Update the `?v=` cache key in `frontend/index.html` when releasing a new
+1. Run `scripts/check-release.sh` for Python compilation, Ruff, mypy, pytest
+   coverage, frontend DOM tests, checksum validation, and whitespace checks.
+2. Run `npx playwright install chromium` once and `npm run test:e2e` when
+   changing layout, controls, or browser behavior.
+3. Check that documentation and the manifest describe new or removed files.
+4. Update the `?v=` cache key in `frontend/index.html` when releasing a new
    version with changed CSS or JavaScript.
-6. Run `sha256sum -c SHA256SUMS` and update checksums for changed installed files.
-7. Search the complete diff for private IP addresses, usernames, credentials,
+5. Run `scripts/update-checksums.sh` after changing installed files.
+6. Search the complete diff for private IP addresses, usernames, credentials,
    recordings, SSH keys, and deployment-specific secrets.
 
 Please do not commit generated caches, local configuration, credentials,
@@ -27,5 +28,5 @@ non-fatal to live audio.
 
 Tests use temporary state and media directories. New tests must not create
 files under `/var/lib`, `/data`, or a contributor's home directory. The GitHub
-Actions workflow runs the same compilation, JavaScript DOM, and pytest checks
-on Python 3.11 through 3.13.
+Actions workflow runs Python checks on 3.11 through 3.13 and the frontend DOM
+and responsive Chromium tests on Node.js 22.

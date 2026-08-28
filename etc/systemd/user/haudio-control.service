@@ -7,12 +7,22 @@ Requires=pipewire.service pipewire-pulse.service wireplumber.service
 [Service]
 Type=simple
 WorkingDirectory=/opt/haudio
-ExecStart=/opt/haudio/.venv/bin/python -m uvicorn haudio_main:APP --host 0.0.0.0 --port 8765
+Environment=HAUDIO_LISTEN=0.0.0.0
+Environment=HAUDIO_PORT=8765
+EnvironmentFile=-/etc/haudio/haudio.env
+ExecStart=/opt/haudio/.venv/bin/python -m uvicorn haudio_main:APP --host ${HAUDIO_LISTEN} --port ${HAUDIO_PORT}
 Restart=always
 RestartSec=3
 KillMode=control-group
 TimeoutStopSec=8
 NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0027
 Environment=PYTHONUNBUFFERED=1
 
 [Install]

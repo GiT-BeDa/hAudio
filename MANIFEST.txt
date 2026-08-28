@@ -7,6 +7,10 @@ Included:
   requirements-dev.txt
   requirements-tested.txt
   requirements-dev-tested.txt
+  package.json
+  package-lock.json
+  playwright.config.js
+  pyproject.toml
   .gitignore
   README.md
   SECURITY.md
@@ -37,6 +41,14 @@ Included:
   docs/ARCHITECTURE.md
   tests/test_haudio.py
   tests/frontend.test.js
+  tests/e2e.spec.js
+  tests/e2e_server.py
+  scripts/install.sh
+  scripts/update.sh
+  scripts/verify-install.sh
+  scripts/update-checksums.sh
+  scripts/set-version.sh
+  scripts/check-release.sh
   docs/images/WebInterface.png
 
 Not included:

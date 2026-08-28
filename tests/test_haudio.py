@@ -1,10 +1,14 @@
 import asyncio
+import io
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
-
 
 PROJECT_ROOT = Path(__file__).parents[1]
 APP_ROOT = PROJECT_ROOT / "opt" / "haudio"
@@ -14,7 +18,7 @@ from haudio.app import Runtime, create_app  # noqa: E402
 from haudio.audio import AudioController, CommandResult  # noqa: E402
 from haudio.config import Config  # noqa: E402
 from haudio.media import MediaManager, valid_recording_filename, valid_sound_filename  # noqa: E402
-from haudio.state import DEFAULT_PRESETS, StateStore  # noqa: E402
+from haudio.state import DEFAULT_PRESETS, StateStore, validate_state  # noqa: E402
 
 
 def test_state_store_is_atomic_and_round_trips(tmp_path):
@@ -40,6 +44,33 @@ def test_fresh_install_and_builtin_presets_use_safe_baseline_volumes(tmp_path):
     assert {key: state[key] for key in expected} == expected
     for preset in DEFAULT_PRESETS.values():
         assert {key: preset[key] for key in expected} == expected
+
+
+def test_invalid_state_values_are_replaced_without_losing_valid_choices(tmp_path):
+    validated = validate_state({
+        "pc1_volume": 500,
+        "pc2_volume": 37,
+        "mic_mute": "yes",
+        "pc1_mute": True,
+        "assignments": {"pc1": "usb-port-1", "unknown": 123},
+    })
+    assert validated["pc1_volume"] == 50
+    assert validated["pc2_volume"] == 37
+    assert validated["mic_mute"] is False
+    assert validated["pc1_mute"] is True
+    assert validated["assignments"] == {"pc1": "usb-port-1"}
+
+    state_file = tmp_path / "state.json"
+    state_file.write_text("not json")
+    StateStore(state_file).load()
+    assert list(tmp_path.glob("state.json.corrupt-*"))
+
+
+def test_configuration_rejects_values_that_could_create_busy_loops():
+    with pytest.raises(ValueError, match="intervals"):
+        Config(status_interval_seconds=0)
+    with pytest.raises(ValueError, match="bitrate"):
+        Config(recording_bitrate="not a bitrate")
 
 
 def test_filename_validation_allows_common_characters_but_blocks_paths():
@@ -134,6 +165,121 @@ def test_audio_cards_use_real_nodes_instead_of_constructed_suffixes(tmp_path):
     assert audio.cards()[0]["sink"] == "alsa_output.usb-example.custom-output"
 
 
+def test_audio_controls_are_targeted_and_failed_commands_are_reported(tmp_path):
+    calls = []
+
+    def runner(args, _env, _timeout):
+        calls.append(args)
+        if "set-sink-input-volume" in args:
+            return CommandResult(1, "", "simulated PipeWire failure")
+        return CommandResult(0, "", "")
+
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds",
+    )
+    audio = AudioController(config, StateStore(config.state_file), runner)
+    audio._stream_indexes = lambda kind, force=False: {"PC1_IN": "41"} if kind == "sink-inputs" else {}
+    audio.nodes = lambda cards=None: {"headset": None, "mic_in": None}
+
+    audio.set_volume("pc1", 43)
+
+    controls = [args[1] for args in calls if len(args) > 1 and args[1].startswith("set-")]
+    assert controls == ["set-sink-input-volume"]
+    assert "simulated PipeWire failure" in audio.last_error
+    assert audio.control_status()["pc1-volume"] is False
+
+
+def test_enabling_a_route_after_global_mic_mute_restores_all_desired_routes(tmp_path):
+    calls = []
+
+    def runner(args, _env, _timeout):
+        calls.append(args)
+        return CommandResult(0, "", "")
+
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds",
+    )
+    store = StateStore(config.state_file)
+    store.update({"mic_mute": True, "mic_pc1": True, "mic_pc2": True})
+    audio = AudioController(config, store, runner)
+    audio._stream_indexes = lambda kind, force=False: (
+        {"SOUNDBOARD_PC1": "11", "SOUNDBOARD_PC2": "12"}
+        if kind == "sink-inputs"
+        else {"MIC_PC1": "21", "MIC_PC2": "22"}
+    )
+
+    audio.set_route("pc1", True)
+
+    assert store.get("mic_mute") is False
+    assert ["/usr/bin/pactl", "set-source-output-mute", "21", "0"] in calls
+    assert ["/usr/bin/pactl", "set-source-output-mute", "22", "0"] in calls
+    assert ["/usr/bin/pactl", "set-sink-input-mute", "11", "0"] in calls
+    assert ["/usr/bin/pactl", "set-sink-input-mute", "12", "0"] in calls
+
+
+def test_graph_matching_includes_latency_and_assigned_device_health(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", loopback_latency_ms=10,
+    )
+    store = StateStore(config.state_file)
+    audio = AudioController(config, store)
+    arguments = (
+        "source=source-a sink=sink-a latency_msec=10 "
+        "source_output_properties=application.name=HAUDIO_PC1_IN "
+        "sink_input_properties=application.name=HAUDIO_PC1_IN"
+    )
+    assert audio._matches(arguments, "PC1_IN", "source-a", "sink-a")
+    assert not audio._matches(
+        arguments.replace("latency_msec=10", "latency_msec=20"), "PC1_IN", "source-a", "sink-a"
+    )
+
+    store.update({"assignments": {"pc1": "missing-device"}})
+    audio._loopbacks = lambda: {}
+    assert audio.graph_ready([]) is False
+    assert audio.device_errors([]) == ["PC1 AUDIO DEVICE LOST"]
+
+
+def test_moved_device_is_rebound_only_when_hardware_fingerprint_is_unique(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds",
+    )
+    store = StateStore(config.state_file)
+    store.update({
+        "assignments": {"pc1": "old-port"},
+        "assignment_fingerprints": {"pc1": "vendor|product|serial|name"},
+    })
+    audio = AudioController(config, store)
+    moved = {
+        "id": "new-port", "card_name": "card", "fingerprint": "vendor|product|serial|name",
+        "has_input": True, "has_output": True, "source": "source", "sink": "sink",
+    }
+
+    assert audio.rebind_assignments([moved]) is True
+    assert store.get("assignments")["pc1"] == "new-port"
+
+
+def test_existing_port_assignment_is_seeded_with_a_hardware_fingerprint(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds",
+    )
+    store = StateStore(config.state_file)
+    store.update({"assignments": {"headset": "current-port"}})
+    audio = AudioController(config, store)
+    card = {
+        "id": "current-port", "card_name": "card", "fingerprint": "vendor|product|serial|name",
+        "has_input": True, "has_output": True, "source": "source", "sink": "sink",
+    }
+
+    assert audio.capture_assignment_fingerprints([card]) is True
+    assert store.get("assignment_fingerprints")["headset"] == "vendor|product|serial|name"
+    assert audio.capture_assignment_fingerprints([card]) is False
+
+
 def test_partial_graph_only_requires_routes_for_assigned_devices(tmp_path):
     config = Config(state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings", soundboard_dir=tmp_path / "sounds")
     store = StateStore(config.state_file)
@@ -159,12 +305,110 @@ def test_soundboard_output_follows_microphone_routes(tmp_path):
     store = StateStore(config.state_file)
     store.update({"mic_mute": False, "mic_pc1": False, "mic_pc2": True})
     audio = AudioController(config, store, runner)
-    audio._stream_indexes = lambda kind: ({"SOUNDBOARD_PC1": "11", "SOUNDBOARD_PC2": "12"} if kind == "sink-inputs" else {})
+    audio._stream_indexes = lambda kind, force=False: ({"SOUNDBOARD_PC1": "11", "SOUNDBOARD_PC2": "12"} if kind == "sink-inputs" else {})
     audio.nodes = lambda cards=None: {"headset": None, "mic_in": None}
     audio.apply_controls()
     mute_calls = [args for args in calls if "set-sink-input-mute" in args]
     assert ["/usr/bin/pactl", "set-sink-input-mute", "11", "1"] in mute_calls
     assert ["/usr/bin/pactl", "set-sink-input-mute", "12", "0"] in mute_calls
+
+
+def test_retention_skips_in_use_file_and_continues_with_other_files(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", recording_max_age_days=1,
+        recording_min_free_gb=0, recording_max_disk_usage_percent=0,
+    )
+    config.ensure_directories()
+    in_use = config.recording_dir / "in-use.opus"
+    removable = config.recording_dir / "removable.opus"
+    in_use.write_bytes(b"one")
+    removable.write_bytes(b"two")
+    old = time.time() - 3 * 86400
+    os.utime(in_use, (old, old))
+    os.utime(removable, (old, old))
+    media = MediaManager(config, StateStore(config.state_file), object())
+    media.recording_in_use = lambda path: path == in_use
+
+    assert media.cleanup_recordings() == 1
+    assert in_use.exists()
+    assert not removable.exists()
+
+
+def test_muted_microphone_is_not_added_to_recording(tmp_path):
+    captured = []
+
+    class RecordingAudio:
+        def nodes(self):
+            return {"headset": "headset-sink", "mic_in": None}
+
+        def environment(self):
+            return {}
+
+    class Process:
+        def poll(self):
+            return None
+
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", sample_rate=44_100,
+    )
+    config.ensure_directories()
+    store = StateStore(config.state_file)
+    store.update({"mic_mute": True})
+    media = MediaManager(config, store, RecordingAudio())
+    media._spawn = lambda key, args: captured.append(args) or Process()
+
+    media.start_recording()
+
+    args = captured[0]
+    assert args.count("-i") == 1
+    assert "aresample=44100" in args[args.index("-filter_complex") + 1]
+
+
+def test_soundboard_upload_does_not_silently_overwrite(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds",
+    )
+    config.ensure_directories()
+    existing = config.soundboard_dir / "alert.mp3"
+    existing.write_bytes(b"existing")
+    media = MediaManager(config, StateStore(config.state_file), object())
+
+    with pytest.raises(HTTPException) as error:
+        media.store_upload("alert.mp3", io.BytesIO(b"replacement"))
+    assert error.value.status_code == 409
+    assert existing.read_bytes() == b"existing"
+
+
+def test_media_process_error_includes_recent_ffmpeg_output(tmp_path, monkeypatch):
+    class Audio:
+        def environment(self):
+            return {}
+
+    class FailedProcess:
+        def poll(self):
+            return 1
+
+    def popen(_args, **kwargs):
+        kwargs["stderr"].write(b"Pulse sink unavailable\n")
+        kwargs["stderr"].flush()
+        return FailedProcess()
+
+    monkeypatch.setattr("haudio.media.subprocess.Popen", popen)
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds",
+    )
+    config.ensure_directories()
+    (config.soundboard_dir / "alert.mp3").write_bytes(b"test")
+    media = MediaManager(config, StateStore(config.state_file), Audio())
+
+    media.play("alert.mp3")
+    media.poll()
+
+    assert "Pulse sink unavailable" in media.last_error
 
 
 class FakeAudio:
@@ -197,11 +441,18 @@ class FakeAudio:
     def apply_controls(self):
         return None
 
+    def control_status(self):
+        return {}
+
+    def device_errors(self, cards=None):
+        return []
+
 
 class FakeMedia:
     def __init__(self):
         self.soundboard = {"playing": "", "active": False, "volume": 100}
         self.recording_playback = {"active": False, "path": "", "name": ""}
+        self.recording_query = None
 
     def soundboard_status(self):
         return dict(self.soundboard)
@@ -219,6 +470,13 @@ class FakeMedia:
 
     def stop_recording_playback(self):
         self.recording_playback = {"active": False, "path": "", "name": ""}
+
+    def recording_files(self, limit=None, offset=0):
+        self.recording_query = (limit, offset)
+        return []
+
+    def recording_count(self):
+        return 0
 
 
 class FakeRuntime:
@@ -279,6 +537,36 @@ def test_mic_mute_and_volume_api_are_reachable(tmp_path):
         response = client.post("/api/mic/volume", json={"value": 37})
         assert response.status_code == 200
         assert response.json()["microphone"]["volume"] == 37
+
+
+def test_recording_listing_is_bounded_and_reports_total(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
+    )
+    runtime = FakeRuntime(config)
+    app = create_app(config, runtime)
+    with TestClient(app) as client:
+        response = client.get("/api/recordings?limit=25&offset=10")
+        assert response.status_code == 200
+        assert response.json() == {"files": [], "total": 0, "limit": 25, "offset": 10}
+        assert runtime.media.recording_query == (25, 10)
+        assert client.get("/api/recordings?limit=501").status_code == 400
+
+
+def test_optional_basic_auth_protects_controls_but_not_health_checks(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
+        auth_username="operator", auth_password="secret",
+    )
+    app = create_app(config, FakeRuntime(config))
+    with TestClient(app) as client:
+        assert client.get("/").status_code == 401
+        assert client.get("/", auth=("operator", "wrong")).status_code == 401
+        assert client.get("/", auth=("operator", "secret")).status_code == 200
+        assert client.get("/health/live").status_code == 200
+        assert client.get("/health/ready").status_code == 200
 
 
 def test_recording_playback_api_reports_live_state(tmp_path):
@@ -414,8 +702,8 @@ def test_frontend_is_complete_and_uses_stable_dom_updates(tmp_path):
         assert "innerHTML" not in javascript.text
         assert "connectWebSocket" in javascript.text
         assert 'aria-pressed="false" disabled>■ STOP' in index.text
-        assert '/static/app.js?v=0.02.3' in index.text
-        assert '/static/style.css?v=0.02' in index.text
+        assert '/static/app.js?v=0.02.5' in index.text
+        assert '/static/style.css?v=0.02.5' in index.text
         assert "soundboardStop.classList.toggle('danger', soundboardActive)" in javascript.text
         assert "soundboardStop.disabled = !soundboardActive" in javascript.text
         assert "playRecording(file, playback)" in javascript.text

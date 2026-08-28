@@ -13,12 +13,20 @@ contains a safe example at `etc/haudio/haudio.json`.
 | `recording_max_disk_usage_percent` | `90.0` | Delete oldest recordings above this filesystem usage; use `0` to disable. |
 | `recording_min_free_gb` | `5.0` | Delete oldest recordings when free space falls below this value. |
 | `soundboard_max_bytes` | `209715200` | Maximum uploaded MP3 size. |
+| `status_interval_seconds` | `5.0` | Interval for expensive system and graph status refreshes. |
+| `device_health_interval_seconds` | `30.0` | Periodic graph check between event-driven device updates. |
+| `meter_enabled` | `true` | Enable live meters while a WebSocket client is connected. |
+| `meter_sample_rate` | `8000` | Low-rate diagnostic meter sample rate. |
 
 Advanced environment-only settings include `HAUDIO_STATUS_INTERVAL_SECONDS`
 for expensive system/audio health refreshes and
 `HAUDIO_WEBSOCKET_INTERVAL_SECONDS` for lightweight live meter updates.
 Set `HAUDIO_LOG_LEVEL` to `DEBUG`, `INFO`, `WARNING`, or `ERROR` to change
 journal verbosity; the default is `INFO`.
+
+Live meters are browser-dependent diagnostics only: their `pw-cat` processes
+start with the first WebSocket client and stop after the last client disconnects.
+The audio graph itself remains browser-independent.
 
 Paths can also be configured, primarily for development and tests:
 
@@ -37,6 +45,16 @@ overridden with environment variables such as `HAUDIO_RECORDING_BITRATE`,
 Unknown configuration keys stop startup with an explicit error instead of
 being silently ignored. Restart `haudio-control.service` after changing the
 configuration.
+
+Optional HTTP Basic authentication is enabled only when both
+`HAUDIO_AUTH_USERNAME` and `HAUDIO_AUTH_PASSWORD` are set in
+`/etc/haudio/haudio.env`. Credentials are rejected in the world-readable JSON
+configuration. Basic authentication does not encrypt traffic; use it only on a
+trusted LAN or together with a VPN/TLS tunnel.
+
+The automated installer creates that environment file with mode `0600`. Keep
+it readable only by the service account, and restart `haudio-control.service`
+after setting or rotating credentials.
 
 On a fresh installation, PC1 and PC2 start at 50%, while headset and microphone
 start at 100%. The built-in preset templates use the same volume baseline.

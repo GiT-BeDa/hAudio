@@ -25,8 +25,14 @@ jobs:
         run: python -m pip install -r requirements-dev-tested.txt
       - name: Compile Python
         run: python -m compileall -q opt/haudio
+      - name: Lint Python
+        run: ruff check opt tests
+      - name: Type-check backend
+        run: mypy opt/haudio/haudio
       - name: Run backend tests
-        run: pytest -q
+        run: pytest --cov=opt/haudio/haudio --cov-report=term-missing --cov-fail-under=55 -q
+      - name: Verify distribution checksums
+        run: sha256sum -c SHA256SUMS
 
   frontend:
     runs-on: ubuntu-latest
@@ -35,7 +41,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+      - name: Install frontend test dependencies
+        run: npm ci
       - name: Check JavaScript syntax
         run: node --check opt/haudio/frontend/app.js
       - name: Run frontend DOM tests
-        run: node --test tests/frontend.test.js
+        run: npm test
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+      - name: Run responsive browser tests
+        run: npm run test:e2e

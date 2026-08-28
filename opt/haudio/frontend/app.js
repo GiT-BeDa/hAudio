@@ -3,7 +3,10 @@
 const ui = {
   state: {},
   recordings: [],
+  recordingsTotal: 0,
+  recordingLimit: 100,
   sounds: [],
+  soundboardPlaying: '',
   pendingVolumes: new Set(),
   volumeTimers: new Map(),
   volumeSequences: new Map(),
@@ -26,7 +29,19 @@ function clearError() {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(path, options);
+  const {timeoutMs = 10000, ...fetchOptions} = options;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(path, {...fetchOptions, signal: controller.signal});
+  } catch (error) {
+    const message = error.name === 'AbortError' ? 'Request timed out.' : `Request failed: ${error.message}`;
+    showError(message);
+    throw new Error(message);
+  } finally {
+    clearTimeout(timeout);
+  }
   let payload = null;
   try {
     payload = await response.json();
@@ -75,13 +90,17 @@ function meterPercent(decibels) {
 
 function updateMeter(name, decibels) {
   const value = Number.isFinite(decibels) ? decibels : -60;
-  byId(`${name}-meter`).style.width = `${meterPercent(value)}%`;
+  const meter = byId(`${name}-meter`);
+  meter.style.width = `${meterPercent(value)}%`;
+  meter.setAttribute('aria-valuenow', value.toFixed(1));
+  meter.setAttribute('aria-valuetext', `${value.toFixed(1)} decibels`);
   byId(`${name}-level`).textContent = `${value.toFixed(1)} dB`;
 }
 
 function updateVolume(name, value) {
   byId(`${name}-volume-value`).textContent = `${value}%`;
   const slider = byId(`${name}-volume`);
+  slider.setAttribute('aria-valuetext', `${value} percent`);
   if (document.activeElement !== slider && !ui.pendingVolumes.has(name)) {
     slider.value = value;
   }
@@ -178,6 +197,10 @@ function applyStatus(status) {
 
   const soundboardActive = Boolean(status.soundboard?.active);
   const playing = soundboardActive ? status.soundboard.playing : '';
+  if (ui.soundboardPlaying !== playing) {
+    ui.soundboardPlaying = playing;
+    renderSounds();
+  }
   const soundboardStop = byId('soundboard-stop');
   soundboardStop.classList.toggle('danger', soundboardActive);
   soundboardStop.setAttribute('aria-pressed', String(soundboardActive));
@@ -220,6 +243,12 @@ function queueVolume(name, value) {
       if (ui.volumeSequences.get(name) === sequence) ui.pendingVolumes.delete(name);
     }
   }, 180));
+}
+
+function shouldHandleVolumeInput(event) {
+  // Browsers can restore form controls while a page is loading. Ignore those
+  // synthetic events so opening or reloading the UI never writes audio controls.
+  return event.isTrusted !== false;
 }
 
 async function waitForPendingVolumes() {
@@ -327,6 +356,18 @@ function renderRecordings() {
     actions.append(rename, remove);
     list.appendChild(row);
   }
+  if (ui.recordings.length < ui.recordingsTotal) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'button load-more';
+    more.textContent = `LOAD MORE (${ui.recordings.length} OF ${ui.recordingsTotal})`;
+    more.addEventListener('click', async () => {
+      more.disabled = true;
+      ui.recordingLimit = Math.min(ui.recordingLimit + 100, ui.recordingsTotal);
+      await loadFiles();
+    });
+    list.appendChild(more);
+  }
 }
 
 function renderSounds() {
@@ -341,8 +382,10 @@ function renderSounds() {
   }
   for (const file of ui.sounds) {
     const {row, actions} = fileRow(file.name, file.size);
-    const play = iconButton('▶', `Play ${file.name}`, 'play');
-    play.addEventListener('click', () => playSound(file.name, play));
+    const playing = ui.soundboardPlaying === file.name;
+    if (playing) row.classList.add('active-file');
+    const play = iconButton(playing ? '■' : '▶', playing ? `Stop ${file.name}` : `Play ${file.name}`, playing ? 'danger' : 'play');
+    play.addEventListener('click', () => playing ? stopSoundboard() : playSound(file.name, play));
     actions.appendChild(play);
     actions.appendChild(downloadLink(`/api/soundboard/${encodeURIComponent(file.name)}`, file.name));
     const rename = iconButton('✎', `Rename ${file.name}`);
@@ -357,11 +400,13 @@ function renderSounds() {
 async function loadFiles() {
   try {
     const [recordings, soundboard] = await Promise.all([
-      request('/api/recordings'),
+      request(`/api/recordings?limit=${ui.recordingLimit}`),
       request('/api/soundboard'),
     ]);
-    ui.recordings = recordings || [];
+    ui.recordings = recordings?.files || recordings || [];
+    ui.recordingsTotal = recordings?.total ?? ui.recordings.length;
     ui.sounds = soundboard.files || [];
+    ui.soundboardPlaying = soundboard.active ? soundboard.playing : '';
     renderRecordings();
     renderSounds();
   } catch (_) {
@@ -378,6 +423,12 @@ async function playSound(name, button) {
   } finally {
     button.disabled = false;
   }
+}
+
+async function stopSoundboard() {
+  await post('/api/soundboard/stop');
+  ui.soundboardPlaying = '';
+  await Promise.all([refreshStatus(), loadFiles()]);
 }
 
 async function playRecording(file, button) {
@@ -427,6 +478,7 @@ async function deleteRecording(file) {
 }
 
 function connectWebSocket() {
+  if (ui.socket && [WebSocket.CONNECTING, WebSocket.OPEN].includes(ui.socket.readyState)) return;
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   const socket = new WebSocket(`${protocol}://${location.host}/ws`);
   ui.socket = socket;
@@ -444,6 +496,7 @@ function connectWebSocket() {
     }
   });
   socket.addEventListener('close', () => {
+    if (ui.socket !== socket) return;
     setConnection(false, 'RECONNECTING');
     if (!ui.fallbackTimer) ui.fallbackTimer = setInterval(refreshStatus, 5000);
     setTimeout(connectWebSocket, ui.reconnectDelay);
@@ -477,7 +530,9 @@ function bindControls() {
     }
   });
   for (const name of ['pc1', 'pc2', 'headset', 'mic', 'soundboard']) {
-    byId(`${name}-volume`).addEventListener('input', (event) => queueVolume(name, event.target.value));
+    byId(`${name}-volume`).addEventListener('input', (event) => {
+      if (shouldHandleVolumeInput(event)) queueVolume(name, event.target.value);
+    });
   }
   byId('pc1-mute').addEventListener('click', async () => applyStatus(await post('/api/pc1/mute', {value: !ui.state.pc1?.mute})));
   byId('pc2-mute').addEventListener('click', async () => applyStatus(await post('/api/pc2/mute', {value: !ui.state.pc2?.mute})));
@@ -503,8 +558,7 @@ function bindControls() {
     }
   });
   byId('soundboard-stop').addEventListener('click', async () => {
-    await post('/api/soundboard/stop');
-    await refreshStatus();
+    await stopSoundboard();
   });
   byId('sound-upload').addEventListener('change', async (event) => {
     const file = event.target.files[0];
@@ -513,7 +567,7 @@ function bindControls() {
     form.append('file', file);
     byId('soundboard-status').textContent = `Uploading ${file.name}…`;
     try {
-      await request('/api/soundboard/upload', {method: 'POST', body: form});
+      await request('/api/soundboard/upload', {method: 'POST', body: form, timeoutMs: 120000});
       event.target.value = '';
       await loadFiles();
       byId('soundboard-status').textContent = 'Upload complete.';
@@ -530,6 +584,8 @@ if (typeof module !== 'undefined' && module.exports) {
     meterPercent,
     nextMicrophoneRouteValue,
     renderRecordings,
+    renderSounds,
+    shouldHandleVolumeInput,
     ui,
     updateVolume,
   };

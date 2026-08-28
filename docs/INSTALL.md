@@ -18,10 +18,28 @@ All remaining commands that reference repository files must be run from this
 `hAudio` directory. A downloaded source archive can be used instead; extract it
 and change into its root directory first.
 
+## Automated installation
+
+For a standard new installation, use:
+
+~~~bash
+sudo scripts/install.sh
+~~~
+
+The script installs required packages, creates the dedicated account, backs up
+existing application/configuration paths, installs the tested Python
+dependencies, enables the user services, and waits up to 30 seconds for audio
+readiness. Runtime state and recordings are preserved.
+
+Use `sudo scripts/update.sh` for later generic updates. Set `HAUDIO_USER` only
+when intentionally targeting a different existing service account. The manual
+steps below document every operation and remain the recovery procedure.
+
 ## 2. Install system packages
 
 ~~~bash
-sudo apt install pipewire pipewire-pulse wireplumber ffmpeg python3 python3-venv
+sudo apt install alsa-utils curl dbus-user-session ffmpeg pipewire \
+  pipewire-pulse pulseaudio-utils python3 python3-venv usbutils wireplumber
 ~~~
 
 Create the service account if it does not exist, then enable its persistent
@@ -31,6 +49,7 @@ user manager:
 if ! id -u haudio >/dev/null 2>&1; then
   sudo useradd --system --create-home --groups audio haudio
 fi
+sudo usermod --append --groups audio haudio
 sudo loginctl enable-linger haudio
 HAUDIO_UID="$(id -u haudio)"
 sudo systemctl start "user@${HAUDIO_UID}.service"
@@ -70,7 +89,8 @@ sudo install -o haudio -g haudio -m 644 opt/haudio/haudio/*.py /opt/haudio/haudi
 sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/index.html /opt/haudio/frontend/index.html
 sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/app.js /opt/haudio/frontend/app.js
 sudo install -o haudio -g haudio -m 644 opt/haudio/frontend/style.css /opt/haudio/frontend/style.css
-sudo install -m 644 etc/haudio/haudio.json /etc/haudio/haudio.json
+sudo test -e /etc/haudio/haudio.json || \
+  sudo install -m 644 etc/haudio/haudio.json /etc/haudio/haudio.json
 ~~~
 
 Create an isolated Python environment and install the tested direct dependency
@@ -112,6 +132,7 @@ sudo -u haudio env XDG_RUNTIME_DIR="/run/user/${HAUDIO_UID}" \
 sudo -u haudio env XDG_RUNTIME_DIR="/run/user/${HAUDIO_UID}" \
   pactl info
 curl --fail http://127.0.0.1:8765/api/status
+curl --fail http://127.0.0.1:8765/health/ready
 ~~~
 
 Open `http://<raspberry-pi-address>:8765` and assign one detected USB audio

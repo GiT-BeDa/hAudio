@@ -13,7 +13,7 @@ hAudio is a permanently running Raspberry Pi audio-routing system. It mixes
 audio from PC1 and PC2 to a wireless headset and routes the headset microphone
 independently to PC1, PC2, both, or neither computer. The browser-independent
 backend also provides combined Opus recording, persistent presets, live status,
-and an MP3 soundboard.
+an MP3 soundboard, health checks, and optional HTTP Basic authentication.
 
 ## Web interface
 
@@ -45,10 +45,12 @@ git clone https://github.com/GiT-BeDa/hAudio.git
 cd hAudio
 ~~~
 
-Then follow [docs/INSTALL.md](docs/INSTALL.md) to install the system packages,
-create the service account, configure PipeWire, install hAudio, and verify the
-service. Do not run PipeWire as root or place the backend in a different runtime
-session from PipeWire.
+For a new generic installation, run `sudo scripts/install.sh`. The idempotent
+installer creates the service account, configures PipeWire, installs the tested
+dependencies, starts the user services, and verifies readiness. Follow
+[docs/INSTALL.md](docs/INSTALL.md) for the manual procedure and existing custom
+installations. Do not run PipeWire as root or place the backend in a different
+runtime session from PipeWire.
 
 Open the web interface at `http://<raspberry-pi-address>:8765`. See
 `docs/INSTALL.md` for backups, verification, and recovery details.
@@ -71,6 +73,8 @@ headset microphone, stored as segmented Opus files under
 played directly, downloaded, renamed, and deleted. Direct playback is sent only
 to the currently assigned headset and never to either computer's microphone
 route.
+When global microphone mute is enabled, new recording segments contain headset
+output only. Changing Mic Mute while recording safely starts a new segment.
 
 MP3 files can be uploaded, validated, played, downloaded, renamed, and deleted.
 Playback uses a dedicated PipeWire mix bus and is sent to the headset and the
@@ -82,6 +86,9 @@ browser.
 Currently detected USB audio cards can be assigned to PC1, PC2, and
 headset/microphone roles in the web interface. Assignments are stored
 persistently and the audio graph is rebuilt from the selected PipeWire cards.
+If a device with a unique serial fingerprint is moved to another USB port,
+hAudio automatically updates its stale port assignment. Ambiguous identical
+devices still require an explicit selection to avoid swapping PC1 and PC2.
 
 ## Optional hardware examples
 
@@ -106,6 +113,8 @@ can be selected for the headset role.
 
 - Web interface: `http://<raspberry-pi-address>:8765`
 - Interactive API: `http://<raspberry-pi-address>:8765/docs`
+- Liveness: `http://<raspberry-pi-address>:8765/health/live`
+- Audio readiness: `http://<raspberry-pi-address>:8765/health/ready`
 - User service: `haudio-control.service`
 - Service user: `haudio`
 - PipeWire runtime: `/run/user/<service-uid>`
@@ -127,14 +136,20 @@ testing newer compatible releases. Then run:
 python3 -m pip install -r requirements-dev-tested.txt
 python3 -m py_compile opt/haudio/haudio_main.py
 python3 -m compileall -q opt/haudio/haudio
+ruff check opt tests
+mypy opt/haudio/haudio
 node --check opt/haudio/frontend/app.js
 node --test tests/frontend.test.js
-pytest -q
+pytest --cov=opt/haudio/haudio --cov-fail-under=55 -q
+npm ci
+npx playwright install chromium
+npm run test:e2e
 ~~~
 
 The tests cover atomic persistence, actual PipeWire node discovery, partial
 graphs, microphone and soundboard routing, API route behavior, duplicate
 assignment protection, and live DOM updates in the static frontend.
+Chromium tests additionally verify the primary desktop and mobile layouts.
 
 ## Included files
 
@@ -150,6 +165,7 @@ assignment protection, and live DOM updates in the static frontend.
 - requirements.txt and requirements-dev.txt – flexible runtime and test dependencies
 - requirements-tested.txt and requirements-dev-tested.txt – tested direct constraints
 - tests/ – automated backend and frontend regression tests
+- scripts/ – installation, update, verification, release, and checksum tooling
 
 Runtime state, recordings, credentials, and private SSH keys are not included.
 

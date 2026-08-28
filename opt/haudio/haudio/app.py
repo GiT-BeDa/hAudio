@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import copy
 import logging
 import math
 import os
 import re
+import secrets
 import shutil
 import socket
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -26,12 +30,53 @@ from .config import Config, load_config
 from .media import MediaManager, valid_recording_filename, valid_sound_filename
 from .state import DEFAULT_PRESETS, PRESET_KEYS, StateStore
 
-
 logging.basicConfig(
     level=os.environ.get("HAUDIO_LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 LOG = logging.getLogger("haudio")
+
+
+class OptionalBasicAuthMiddleware:
+    """Protect HTTP and WebSocket control surfaces when credentials are configured."""
+
+    def __init__(self, app, username: str, password: str):
+        self.app = app
+        self.username = username
+        self.password = password
+
+    def _authorized(self, scope: dict) -> bool:
+        if not self.username or scope.get("path") in {"/health/live", "/health/ready"}:
+            return True
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        authorization = headers.get(b"authorization", b"")
+        if not authorization.startswith(b"Basic "):
+            return False
+        try:
+            decoded = base64.b64decode(authorization[6:], validate=True).decode("utf-8")
+            username, password = decoded.split(":", 1)
+        except (ValueError, UnicodeDecodeError, binascii.Error):
+            return False
+        return secrets.compare_digest(username, self.username) and secrets.compare_digest(password, self.password)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in {"http", "websocket"} or self._authorized(scope):
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 1008, "reason": "Authentication required"})
+            return
+        body = b'{"detail":"authentication required"}'
+        await send({
+            "type": "http.response.start",
+            "status": 401,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+                (b"www-authenticate", b'Basic realm="hAudio", charset="UTF-8"'),
+            ],
+        })
+        await send({"type": "http.response.body", "body": body})
 
 
 class VolumeRequest(BaseModel):
@@ -52,26 +97,41 @@ class AssignmentRequest(BaseModel):
 
 
 class MeterManager:
-    def __init__(self, audio: AudioController):
+    def __init__(self, audio: AudioController, config: Config):
         self.audio = audio
+        self.config = config
         self.levels = {"pc1": -60.0, "pc2": -60.0, "microphone": -60.0, "headset": -60.0}
         self.tasks: dict[str, asyncio.Task] = {}
         self.current: dict[str, str | None] = {}
+        self.consumers = 0
+        self._consumer_event = asyncio.Event()
+
+    async def add_consumer(self) -> None:
+        self.consumers += 1
+        self._consumer_event.set()
+
+    async def remove_consumer(self) -> None:
+        self.consumers = max(0, self.consumers - 1)
+        self._consumer_event.set()
 
     async def meter(self, key: str, source: str) -> None:
         while True:
             process = None
             try:
                 process = await asyncio.create_subprocess_exec(
-                    "/usr/bin/pw-cat", "--record", "--target", source, "--rate", "8000",
+                    "/usr/bin/pw-cat", "--record", "--target", source,
+                    "--rate", str(self.config.meter_sample_rate),
                     "--channels", "1", "--format", "s16", "--latency", "100ms", "-",
                     env=self.audio.environment(), stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
+                if process.stdout is None:
+                    raise RuntimeError("pw-cat did not provide a level stream")
+                reader = process.stdout
                 while True:
                     # Half-second blocks avoid busy Python loops while retaining
                     # a responsive 2 Hz diagnostic meter.
-                    data = await process.stdout.readexactly(8000)
+                    data = await reader.readexactly(self.config.meter_sample_rate)
                     samples = memoryview(data).cast("h")
                     step = max(1, len(samples) // 256)
                     sampled = samples[::step]
@@ -89,15 +149,33 @@ class MeterManager:
                     process.terminate()
                     try:
                         await asyncio.wait_for(process.wait(), 2)
-                    except (asyncio.TimeoutError, ProcessLookupError):
+                    except (TimeoutError, ProcessLookupError):
                         if process.returncode is None:
                             process.kill()
                 self.levels[key] = -60.0
             await asyncio.sleep(1)
 
+    async def _deactivate(self) -> None:
+        for task in self.tasks.values():
+            task.cancel()
+        if self.tasks:
+            await asyncio.gather(*self.tasks.values(), return_exceptions=True)
+        self.tasks.clear()
+        self.current.clear()
+        for key in self.levels:
+            self.levels[key] = -60.0
+
     async def monitor(self) -> None:
         while True:
             try:
+                if not self.config.meter_enabled or self.consumers == 0:
+                    await self._deactivate()
+                    self._consumer_event.clear()
+                    if not self.config.meter_enabled:
+                        await asyncio.sleep(30)
+                    elif self.consumers == 0:
+                        await self._consumer_event.wait()
+                    continue
                 cards = await asyncio.to_thread(self.audio.cards)
                 nodes = self.audio.nodes(cards)
                 wanted = {
@@ -123,11 +201,7 @@ class MeterManager:
             await asyncio.sleep(3)
 
     async def stop(self) -> None:
-        for task in self.tasks.values():
-            task.cancel()
-        if self.tasks:
-            await asyncio.gather(*self.tasks.values(), return_exceptions=True)
-        self.tasks.clear()
+        await self._deactivate()
 
 
 class Runtime:
@@ -136,7 +210,7 @@ class Runtime:
         self.store = store
         self.audio = audio
         self.media = media
-        self.meters = MeterManager(audio)
+        self.meters = MeterManager(audio, config)
         self._status: dict = {}
         self._status_lock = asyncio.Lock()
         self._tasks: list[asyncio.Task] = []
@@ -155,7 +229,8 @@ class Runtime:
                     "id": card["id"], "product": card["product"],
                     "description": card["description"], "bus_path": card["id"],
                     "has_input": card["has_input"], "has_output": card["has_output"],
-                    "roles": [role for role, value in assignments.items() if value == card["id"]],
+                    "roles": [role for role, value in selected.items() if value == card["id"]],
+                    "sources": card.get("sources", []), "sinks": card.get("sinks", []),
                 }
                 for card in cards
             ],
@@ -164,8 +239,8 @@ class Runtime:
         }
 
     @staticmethod
-    def _system_metrics(recording_dir: Path) -> dict:
-        result = {
+    def _system_metrics(recording_dir: Path) -> dict[str, Any]:
+        result: dict[str, Any] = {
             "disk_free_gb": None, "cpu_load": None, "ram_used_percent": None,
             "temperature_c": None, "uptime_seconds": None,
             "network_interface": "", "connection_type": "", "primary_ip": "",
@@ -196,7 +271,7 @@ class Runtime:
         except (OSError, ValueError):
             pass
         try:
-            routes = []
+            routes: list[tuple[int, str]] = []
             for line in Path("/proc/net/route").read_text().splitlines()[1:]:
                 fields = line.split()
                 if len(fields) >= 8 and fields[1] == "00000000":
@@ -242,7 +317,7 @@ class Runtime:
         current = self.store.snapshot()
         system = self._system_metrics(self.config.recording_dir)
         pipewire = self.audio.available()
-        graph_ready = pipewire and self.audio.graph_ready()
+        graph_ready = pipewire and self.audio.graph_ready(cards)
         system.update({"pipewire": pipewire, "graph_ready": graph_ready})
         errors = []
         if not pipewire:
@@ -251,6 +326,7 @@ class Runtime:
             errors.append(self.audio.last_error)
         if self.media.last_error:
             errors.append(self.media.last_error)
+        errors.extend(self.audio.device_errors(cards))
         if system.get("disk_free_gb") is not None and system["disk_free_gb"] < self.config.recording_min_free_gb:
             errors.append("DISK SPACE LOW")
         return {
@@ -272,6 +348,7 @@ class Runtime:
             "system": system,
             "devices": self.device_payload(cards),
             "presets": {"mute_all_active": bool(current.get("mute_all_active"))},
+            "controls": self.audio.control_status(),
             "errors": list(dict.fromkeys(errors)),
         }
 
@@ -298,23 +375,57 @@ class Runtime:
         return cached
 
     async def device_monitor(self) -> None:
-        health_counter = 0
         while True:
+            process = None
             try:
-                signature = await asyncio.to_thread(self.audio.signature)
-                health_counter += 1
-                needs_health_check = health_counter >= 4
-                if signature != self._last_signature or needs_health_check:
-                    healthy = await asyncio.to_thread(self.audio.graph_ready) if signature == self._last_signature else False
-                    if not healthy:
+                process = await asyncio.create_subprocess_exec(
+                    "/usr/bin/pactl", "subscribe", env=self.audio.environment(),
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+                )
+                if process.stdout is None:
+                    raise RuntimeError("pactl subscribe did not provide an event stream")
+                reader = process.stdout
+                while True:
+                    event = ""
+                    try:
+                        line = await asyncio.wait_for(
+                            reader.readline(), self.config.device_health_interval_seconds
+                        )
+                        if not line:
+                            returncode = await process.wait()
+                            log = LOG.info if returncode in {0, -15, -9} else LOG.warning
+                            log(
+                                "Device event subscription ended with code %s; "
+                                "restarting if the backend remains active",
+                                returncode,
+                            )
+                            break
+                        event = line.decode(errors="replace").lower()
+                    except TimeoutError:
+                        pass
+                    relevant = not event or bool(re.search(r"on (?:card|source|sink|server)(?:\s|#)", event))
+                    if not relevant:
+                        continue
+                    if event:
+                        await asyncio.sleep(0.25)
+                    signature = await asyncio.to_thread(self.audio.signature)
+                    healthy = await asyncio.to_thread(self.audio.graph_ready)
+                    if signature != self._last_signature or not healthy:
                         await asyncio.to_thread(self.audio.reconcile_graph)
                     self._last_signature = signature
-                    health_counter = 0
             except asyncio.CancelledError:
                 raise
             except Exception:
                 LOG.exception("Device monitor failed")
-            await asyncio.sleep(self.config.device_interval_seconds)
+            finally:
+                if process and process.returncode is None:
+                    process.terminate()
+                    try:
+                        await asyncio.wait_for(process.wait(), 2)
+                    except (TimeoutError, ProcessLookupError):
+                        if process.returncode is None:
+                            process.kill()
+            await asyncio.sleep(1)
 
     async def status_monitor(self) -> None:
         while True:
@@ -347,6 +458,7 @@ class Runtime:
         self.config.ensure_directories()
         self.store.load()
         await asyncio.to_thread(self.audio.reconcile_graph)
+        self._last_signature = await asyncio.to_thread(self.audio.signature)
         await self.refresh_status()
         self._tasks = [
             asyncio.create_task(self.device_monitor(), name="device-monitor"),
@@ -381,6 +493,11 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
             await runtime.stop()
 
     app = FastAPI(title="hAudio", version=__version__, lifespan=lifespan)
+    app.add_middleware(
+        OptionalBasicAuthMiddleware,
+        username=config.auth_username,
+        password=config.auth_password,
+    )
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=config.frontend_dir), name="static")
 
@@ -390,6 +507,17 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
     @app.get("/api/status")
     async def status():
         return await runtime.status()
+
+    @app.get("/health/live")
+    async def health_live():
+        return {"status": "alive", "version": __version__}
+
+    @app.get("/health/ready")
+    async def health_ready():
+        value = await runtime.status()
+        if not value.get("system", {}).get("graph_ready"):
+            raise HTTPException(503, "audio graph is not ready")
+        return {"status": "ready", "version": __version__}
 
     @app.get("/api/devices")
     async def devices():
@@ -403,6 +531,9 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
         cards = await asyncio.to_thread(runtime.audio.cards)
         if request.card_id and not any(card["id"] == request.card_id for card in cards):
             raise HTTPException(404, "audio card not found")
+        selected = next((card for card in cards if card["id"] == request.card_id), None)
+        if selected and (not selected["has_input"] or not selected["has_output"]):
+            raise HTTPException(409, "the selected role requires a bidirectional audio interface")
         assignments = runtime.store.get("assignments", {})
         duplicate_role = next(
             (role for role, card_id in assignments.items() if role != request.role and card_id == request.card_id and card_id),
@@ -412,7 +543,12 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
             raise HTTPException(409, f"audio card is already assigned to {duplicate_role}")
         await asyncio.to_thread(runtime.media.stop_recording_playback)
         assignments[request.role] = request.card_id
-        runtime.store.update({"assignments": assignments})
+        fingerprints = runtime.store.get("assignment_fingerprints", {})
+        if selected:
+            fingerprints[request.role] = selected.get("fingerprint", "")
+        else:
+            fingerprints.pop(request.role, None)
+        runtime.store.update({"assignments": assignments, "assignment_fingerprints": fingerprints})
         await asyncio.to_thread(runtime.audio.reconcile_graph)
         if runtime.store.get("recording", {}).get("session"):
             await asyncio.to_thread(runtime.media.restart_recording_for_device_change)
@@ -430,20 +566,34 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
     async def mute(target: str, request: BooleanRequest):
         if target not in {"pc1", "pc2", "mic"}:
             raise HTTPException(400, "invalid target")
+        previous_mic_mute = runtime.store.get("mic_mute")
         await asyncio.to_thread(runtime.audio.set_mute, target, request.value)
+        if (
+            target == "mic"
+            and previous_mic_mute != request.value
+            and runtime.store.get("recording", {}).get("session")
+        ):
+            await asyncio.to_thread(runtime.media.restart_recording_for_device_change)
         return await fresh_status()
 
     @app.post("/api/mic/route/{computer}")
     async def route_microphone(computer: str, request: BooleanRequest):
         if computer not in {"pc1", "pc2"}:
             raise HTTPException(400, "invalid computer")
+        previous_mic_mute = runtime.store.get("mic_mute")
         await asyncio.to_thread(runtime.audio.set_route, computer, request.value)
+        if (
+            previous_mic_mute != runtime.store.get("mic_mute")
+            and runtime.store.get("recording", {}).get("session")
+        ):
+            await asyncio.to_thread(runtime.media.restart_recording_for_device_change)
         return await fresh_status()
 
     @app.post("/api/preset/{name}")
     async def apply_preset(name: str):
         if name != "mute-all" and name not in DEFAULT_PRESETS:
             raise HTTPException(404, "preset not found")
+        previous_mic_mute = runtime.store.get("mic_mute")
         if name == "mute-all":
             restore_keys = ("pc1_mute", "pc2_mute", "mic_mute", "mic_pc1", "mic_pc2")
 
@@ -472,6 +622,11 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
                 "mute_all_restore": {},
             })
         await asyncio.to_thread(runtime.audio.apply_controls)
+        if (
+            previous_mic_mute != runtime.store.get("mic_mute")
+            and runtime.store.get("recording", {}).get("session")
+        ):
+            await asyncio.to_thread(runtime.media.restart_recording_for_device_change)
         LOG.info("Preset applied: %s", name)
         return await fresh_status()
 
@@ -562,8 +717,14 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
         return await recording_action(action)
 
     @app.get("/api/recordings")
-    async def recordings():
-        return await asyncio.to_thread(runtime.media.recording_files)
+    async def recordings(limit: int = 100, offset: int = 0):
+        if not 1 <= limit <= 500 or offset < 0:
+            raise HTTPException(400, "invalid recording page")
+        files, total = await asyncio.gather(
+            asyncio.to_thread(runtime.media.recording_files, limit, offset),
+            asyncio.to_thread(runtime.media.recording_count),
+        )
+        return {"files": files, "total": total, "limit": limit, "offset": offset}
 
     @app.post("/api/recordings/playback/stop")
     async def stop_recording_playback():
@@ -608,12 +769,19 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
             await websocket.close(code=1008)
             return
         await websocket.accept()
+        await runtime.meters.add_consumer()
         try:
             while True:
                 await websocket.send_json(await runtime.status())
                 await asyncio.sleep(config.websocket_interval_seconds)
+        except WebSocketDisconnect:
+            pass
+        except asyncio.CancelledError:
+            raise
         except Exception:
-            return
+            LOG.exception("WebSocket status stream failed")
+        finally:
+            await runtime.meters.remove_consumer()
 
     @app.get("/")
     async def index():
