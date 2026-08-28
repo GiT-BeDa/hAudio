@@ -1,4 +1,4 @@
-hAudio 0.02 source distribution – updated 2026-08-28
+hAudio 0.03 source distribution – updated 2026-08-28
 
 Included:
   LICENSE

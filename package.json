@@ -1,7 +1,7 @@
 {
   "name": "haudio-web-tests",
   "private": true,
-  "version": "0.02.0",
+  "version": "0.03.0",
   "scripts": {
     "test": "node --test tests/frontend.test.js",
     "test:e2e": "playwright test"

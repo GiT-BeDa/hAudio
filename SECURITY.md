@@ -2,7 +2,7 @@
 
 ## Scope
 
-hAudio 0.02 is intended for a trusted local network. Version 0.02 provides
+hAudio 0.03 is intended for a trusted local network. Version 0.03 provides
 optional HTTP Basic authentication but no built-in HTTPS. The web interface
 and API listen on port 8765 and can control audio, recordings, and uploaded
 sound files.
@@ -39,5 +39,5 @@ instances reachable from untrusted networks.
 ## Supported versions
 
 Only the latest published version on the default branch is currently
-supported. This project is still at version 0.02, so breaking changes may
+supported. This project is still at version 0.03, so breaking changes may
 occur while the architecture is stabilized.

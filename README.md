@@ -1,8 +1,8 @@
-# hAudio 0.02 – Audio Routing for Two Computers
+# hAudio 0.03 – Audio Routing for Two Computers
 
 [![Tests](https://github.com/GiT-BeDa/hAudio/actions/workflows/tests.yml/badge.svg)](https://github.com/GiT-BeDa/hAudio/actions/workflows/tests.yml)
 [![License: GPL v3 or later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.02-22c55e.svg)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.03-22c55e.svg)](VERSION)
 
 - Updated: 2026-08-28
 - Author: Peter Grunert
@@ -108,6 +108,38 @@ Identical USB audio interfaces are distinguished by their physical USB paths
 or by explicit assignments in the web interface. ALSA card numbers and USB
 device numbers are not permanent identifiers. Any compatible headset adapter
 can be selected for the headset role.
+
+## ToDo and known problems
+
+### ToDo
+
+- Add visible USB-audio xrun, resynchronization, and Raspberry Pi
+  undervoltage diagnostics to the web interface.
+- Improve automatic recovery and route verification after USB interfaces are
+  unplugged, moved between hubs, or re-enumerated while hAudio is running.
+- Evaluate per-device PipeWire/ALSA period, headroom, and realtime-scheduling
+  defaults for installations with several independent USB audio clocks.
+- Extend long-duration tests to cover three simultaneous full-speed USB audio
+  devices and common Raspberry Pi hub topologies.
+
+### Known problems
+
+- The reference setup has no galvanic isolation between the computers and the
+  analog connections of the USB audio interfaces. Ground loops can therefore
+  cause hum, noise, or interference. hAudio cannot remove this electrically in
+  software; use suitable stereo audio isolation transformers or galvanically
+  isolated audio interfaces where required. Do not defeat protective-earth
+  connections to work around a ground loop.
+- Several independent USB audio clocks can occasionally cause PipeWire xruns
+  or resynchronizations, heard as crackling or short dropouts. The risk rises
+  when devices share a single-TT USB hub, PipeWire lacks realtime scheduling,
+  or the Raspberry Pi is undervolted.
+- Many inexpensive, identical USB audio adapters have no unique serial number.
+  After moving or reconnecting them, PC1 and PC2 may require explicit
+  reassignment in the web interface.
+- hAudio provides optional HTTP Basic authentication but no built-in HTTPS. It
+  should remain on a trusted LAN or be reached through a VPN, SSH tunnel, or
+  TLS-terminating reverse proxy.
 
 ## Operation
 

@@ -502,7 +502,7 @@ class FakeRuntime:
     async def status(self):
         state = self.store.snapshot()
         return {
-            "name": "hAudio", "version": "0.02", "online": True,
+            "name": "hAudio", "version": "0.03", "online": True,
             "pc1": {"connected": True, "volume": state["pc1_volume"], "mute": state["pc1_mute"]},
             "pc2": {"connected": True, "volume": state["pc2_volume"], "mute": state["pc2_mute"]},
             "headset": {"connected": True, "volume": state["headset_volume"]},
@@ -702,8 +702,8 @@ def test_frontend_is_complete_and_uses_stable_dom_updates(tmp_path):
         assert "innerHTML" not in javascript.text
         assert "connectWebSocket" in javascript.text
         assert 'aria-pressed="false" disabled>■ STOP' in index.text
-        assert '/static/app.js?v=0.02.5' in index.text
-        assert '/static/style.css?v=0.02.5' in index.text
+        assert '/static/app.js?v=0.03' in index.text
+        assert '/static/style.css?v=0.03' in index.text
         assert "soundboardStop.classList.toggle('danger', soundboardActive)" in javascript.text
         assert "soundboardStop.disabled = !soundboardActive" in javascript.text
         assert "playRecording(file, playback)" in javascript.text
