@@ -11,7 +11,7 @@ FRONTEND = ROOT / "opt" / "haudio" / "frontend"
 
 STATUS = {
     "name": "hAudio",
-    "version": "0.03",
+    "version": "0.04",
     "online": True,
     "pc1": {"connected": True, "volume": 50, "mute": False},
     "pc2": {"connected": True, "volume": 50, "mute": False},

@@ -1,10 +1,10 @@
-# hAudio 0.03 – Audio Routing for Two Computers
+# hAudio 0.04 – Audio Routing for Two Computers
 
 [![Tests](https://github.com/GiT-BeDa/hAudio/actions/workflows/tests.yml/badge.svg)](https://github.com/GiT-BeDa/hAudio/actions/workflows/tests.yml)
 [![License: GPL v3 or later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.03-22c55e.svg)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.04-22c55e.svg)](VERSION)
 
-- Updated: 2026-08-28
+- Updated: 2026-10-14
 - Author: Peter Grunert
 - Website: <https://www.bk99.de>
 - License: GNU General Public License v3.0 or later (GPL-3.0-or-later)
