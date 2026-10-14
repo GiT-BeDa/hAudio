@@ -31,7 +31,7 @@ curl --fail -X POST http://<raspberry-pi-address>:8765/api/pc1/volume \
 | --- | --- | --- |
 | `GET` | `/api/status` | Complete live state: computers, headset, microphone, recording, soundboard, levels, system and devices. |
 | `GET` | `/api/devices` | Lists detected USB audio cards and current assignments. |
-| `POST` | `/api/devices/assign` | Assign a card: `{"role":"pc1\|pc2\|headset","card_id":"..."}`. Use an empty `card_id` to unassign. Duplicate role assignments return `409`. |
+| `POST` | `/api/devices/assign` | Assign a card: `{"role":"pc1\|pc2\|headset","card_id":"..."}`. Use an empty `card_id` to unassign. Duplicate role assignments and cards without any input or output return `409`; output-only or input-only cards are accepted and only route the available direction. |
 
 Volume values are integer percentages from 0 to 100. Mute and microphone
 route values are booleans.
@@ -115,7 +115,8 @@ that is currently playing cannot be renamed or deleted. These requests return
 
 Global Mic Mute is also a recording privacy control. A muted recording segment
 contains headset output but no microphone input. Changing Mic Mute while a
-session is active rotates to a new segment.
+session is active rotates to a new segment. If the headset interface has no
+microphone input, recordings contain headset output only.
 
 ## Health checks
 
@@ -129,14 +130,18 @@ session is active rotates to a new segment.
 Connect a WebSocket to `/ws`. By default, the server sends four lightweight
 status updates per second (`websocket_interval_seconds` is `0.25`). It includes
 the same main state sections as `/api/status`, plus live dB levels in `levels`.
-The browser automatically reconnects after a lost connection. Browser
+`input`/`output` show which directions of a computer interface exist.
+`microphone.available` is `false` when the assigned headset interface has no
+microphone input; this is not an error. The browser automatically reconnects
+after a lost connection. Browser
 WebSocket origins must match the hAudio host.
 
 Example:
 
 ```json
 {
-  "pc1": {"connected": true, "volume": 50, "mute": false},
+  "pc1": {"connected": true, "volume": 50, "mute": false, "input": true, "output": true},
+  "microphone": {"connected": false, "available": false, "volume": 100, "mute": false, "route_pc1": true, "route_pc2": false},
   "recording": {"session": false, "playback": {"active": true, "path": "2026-08-28/session.opus", "name": "session.opus"}},
   "soundboard": {"playing": "alert.mp3", "active": true, "volume": 80},
   "levels": {"pc1": -18.2, "pc2": -60.0, "microphone": -24.1, "headset": -14.0},

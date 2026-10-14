@@ -137,7 +137,9 @@ curl --fail http://127.0.0.1:8765/health/ready
 
 Open `http://<raspberry-pi-address>:8765` and assign one detected USB audio
 interface to each required role. A single interface cannot be assigned to
-multiple roles because that could create feedback loops.
+multiple roles because that could create feedback loops. Interfaces with only
+an output or only an input are accepted; hAudio routes the directions they
+provide, so a headset adapter without microphone input works for listening.
 
 ## Existing custom installations
 

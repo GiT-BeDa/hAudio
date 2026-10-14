@@ -140,6 +140,19 @@ test('disconnected inputs remain at the silent meter floor', () => {
   assert.equal(document.getElementById('pc1-level').textContent, '-60.0 dB');
 });
 
+test('output-only headset shows the microphone as unavailable, not disconnected', () => {
+  global.document = createDocument();
+  frontend.applyStatus(status({
+    pc1: {connected: true, volume: 50, mute: false, input: true, output: false},
+    microphone: {connected: false, available: false, volume: 100, mute: false, route_pc1: true, route_pc2: false},
+  }));
+
+  assert.equal(document.getElementById('microphone-state').className, 'device-state unavailable');
+  assert.equal(document.getElementById('microphone-state').textContent, '● NOT AVAILABLE');
+  assert.equal(document.getElementById('pc1-state').className, 'device-state on');
+  assert.equal(document.getElementById('pc1-state').textContent, '● INPUT ONLY');
+});
+
 test('microphone routes are not shown active while globally muted', () => {
   global.document = createDocument();
   frontend.applyStatus(status({

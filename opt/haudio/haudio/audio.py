@@ -266,12 +266,16 @@ class AudioController:
         for role in ("pc1", "pc2", "headset"):
             assigned = bool(assignments.get(role))
             card = self.selected_card(role, cards)
-            connected = bool(card and card.get("has_input") and card.get("has_output"))
+            # Output-only and input-only interfaces are valid; only the
+            # directions they provide are routed.
+            connected = bool(card and (card.get("has_input") or card.get("has_output")))
             health[role] = {
                 "assigned": assigned,
                 "connected": connected,
+                "has_input": bool(card and card.get("has_input")),
+                "has_output": bool(card and card.get("has_output")),
                 "card": card,
-                "reason": "" if not assigned or connected else "assigned bidirectional device is unavailable",
+                "reason": "" if not assigned or connected else "assigned audio device is unavailable",
             }
         return health
 
@@ -280,7 +284,7 @@ class AudioController:
         labels = {
             "pc1": "PC1 AUDIO DEVICE LOST",
             "pc2": "PC2 AUDIO DEVICE LOST",
-            "headset": "HEADSET OR MICROPHONE DISCONNECTED",
+            "headset": "HEADSET DISCONNECTED",
         }
         return [labels[role] for role, value in health.items() if value["assigned"] and not value["connected"]]
 

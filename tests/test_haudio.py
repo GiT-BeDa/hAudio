@@ -294,6 +294,40 @@ def test_partial_graph_only_requires_routes_for_assigned_devices(tmp_path):
     assert "MIC_PC2" not in desired
 
 
+def test_output_only_headset_adapter_routes_without_microphone(tmp_path):
+    """Issue #1: a USB adapter without microphone input is a valid headset."""
+    config = Config(state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings", soundboard_dir=tmp_path / "sounds")
+    store = StateStore(config.state_file)
+    store.update({"assignments": {"pc1": "usb-pc1", "headset": "usb-dongle"}})
+    audio = AudioController(config, store)
+    cards = [
+        {"id": "usb-pc1", "card_name": "pc1", "source": "pc1-source", "sink": None,
+         "has_input": True, "has_output": False},
+        {"id": "usb-dongle", "card_name": "dongle", "source": None, "sink": "dongle-sink",
+         "has_input": False, "has_output": True},
+    ]
+    desired = audio.desired_graph(audio.nodes(cards))
+    assert desired["PC1_IN"] == ("pc1-source", "dongle-sink")
+    assert "MIC_PC1" not in desired
+    assert "SOUNDBOARD_PC1" not in desired
+    assert audio.device_errors(cards) == []
+    health = audio.role_health(cards)
+    assert health["headset"]["connected"] and not health["headset"]["has_input"]
+    audio._loopbacks = lambda: {"PC1_IN": [{"id": "1", "arguments": (
+        f"source=pc1-source sink=dongle-sink latency_msec={config.loopback_latency_ms} "
+        "source_output_properties=application.name=HAUDIO_PC1_IN "
+        "sink_input_properties=application.name=HAUDIO_PC1_IN"
+    )}], "SOUNDBOARD_HEADSET": [{"id": "2", "arguments": (
+        f"source=HAUDIO_SOUNDBOARD.monitor sink=dongle-sink latency_msec={config.loopback_latency_ms} "
+        "source_output_properties=application.name=HAUDIO_SOUNDBOARD_HEADSET "
+        "sink_input_properties=application.name=HAUDIO_SOUNDBOARD_HEADSET"
+    )}]}
+    assert audio.graph_ready(cards) is True
+
+    cards[1] = {**cards[1], "has_output": False, "sink": None}
+    assert audio.device_errors(cards) == ["HEADSET DISCONNECTED"]
+
+
 def test_soundboard_output_follows_microphone_routes(tmp_path):
     calls = []
 
@@ -364,6 +398,30 @@ def test_muted_microphone_is_not_added_to_recording(tmp_path):
     args = captured[0]
     assert args.count("-i") == 1
     assert "aresample=44100" in args[args.index("-filter_complex") + 1]
+
+
+def test_unmuted_recording_without_microphone_records_headset_output(tmp_path):
+    captured = []
+
+    class RecordingAudio:
+        def nodes(self):
+            return {"headset": "headset-sink", "mic_in": None}
+
+    class Process:
+        def poll(self):
+            return None
+
+    config = Config(state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings", soundboard_dir=tmp_path / "sounds")
+    config.ensure_directories()
+    store = StateStore(config.state_file)
+    store.update({"mic_mute": False})
+    media = MediaManager(config, store, RecordingAudio())
+    media._spawn = lambda key, args: captured.append(args) or Process()
+
+    media.start_recording()
+
+    assert captured[0].count("-i") == 1
+    assert "headset-sink.monitor" in captured[0]
 
 
 def test_soundboard_upload_does_not_silently_overwrite(tmp_path):
@@ -601,6 +659,25 @@ def test_duplicate_device_assignment_is_rejected(tmp_path):
     with TestClient(app) as client:
         response = client.post("/api/devices/assign", json={"role": "pc2", "card_id": "usb-1"})
         assert response.status_code == 409
+
+
+def test_single_direction_devices_can_be_assigned(tmp_path):
+    config = Config(
+        state_dir=tmp_path / "state", recording_dir=tmp_path / "recordings",
+        soundboard_dir=tmp_path / "sounds", frontend_dir=APP_ROOT / "frontend",
+    )
+    runtime = FakeRuntime(config)
+    runtime.audio.cards_value = [
+        {"id": "usb-out", "product": "Dongle", "description": "Dongle", "has_input": False, "has_output": True},
+        {"id": "usb-in", "product": "DAC", "description": "DAC", "has_input": True, "has_output": False},
+        {"id": "usb-none", "product": "Off", "description": "Off", "has_input": False, "has_output": False},
+    ]
+    app = create_app(config, runtime)
+    with TestClient(app) as client:
+        assert client.post("/api/devices/assign", json={"role": "headset", "card_id": "usb-out"}).status_code == 200
+        assert client.post("/api/devices/assign", json={"role": "pc1", "card_id": "usb-in"}).status_code == 200
+        assert client.post("/api/devices/assign", json={"role": "pc2", "card_id": "usb-none"}).status_code == 409
+    assert runtime.store.get("assignments") == {"headset": "usb-out", "pc1": "usb-in"}
 
 
 def test_preset_updates_routes_and_mutes(tmp_path):

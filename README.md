@@ -90,6 +90,14 @@ If a device with a unique serial fingerprint is moved to another USB port,
 hAudio automatically updates its stale port assignment. Ambiguous identical
 devices still require an explicit selection to avoid swapping PC1 and PC2.
 
+Interfaces do not have to provide both directions. An output-only adapter, for
+example a wireless headset dongle or USB DAC without microphone input, can be
+assigned to the headset role; hAudio then routes PC1/PC2 audio and the
+soundboard to it and shows the microphone as `NOT AVAILABLE`. Likewise, a
+computer interface without input or output only carries the direction it
+provides. Recordings contain the headset output only when no microphone is
+available.
+
 ## Optional hardware examples
 
 hAudio is designed to work with compatible USB audio adapters and 3.5 mm

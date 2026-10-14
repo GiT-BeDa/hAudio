@@ -216,14 +216,11 @@ class MediaManager:
                 return
             nodes = self.audio.nodes()
             headset = nodes["headset"]
-            microphone = nodes["mic_in"]
-            microphone_required = not self.store.get("mic_mute")
-            if not headset or (microphone_required and not microphone):
+            # A headset adapter without microphone input records output only.
+            microphone = None if self.store.get("mic_mute") else nodes["mic_in"]
+            if not headset:
                 if requested_by_user:
-                    detail = "a headset must be assigned before recording"
-                    if headset and microphone_required:
-                        detail = "a microphone must be assigned before recording while it is unmuted"
-                    raise HTTPException(409, detail)
+                    raise HTTPException(409, "a headset must be assigned before recording")
                 return
             directory = self.config.recording_dir / time.strftime("%Y-%m-%d")
             directory.mkdir(parents=True, exist_ok=True)
@@ -233,10 +230,9 @@ class MediaManager:
                 "/usr/bin/ffmpeg", "-hide_banner", "-loglevel", "warning",
                 "-thread_queue_size", "512", "-f", "pulse", "-i", f"{headset}.monitor",
             ]
-            if self.store.get("mic_mute"):
+            if not microphone:
                 audio_filter = f"[0:a]aresample={self.config.sample_rate},alimiter=limit=0.95[out]"
             else:
-                assert microphone is not None
                 args.extend([
                     "-thread_queue_size", "512", "-f", "pulse", "-i", microphone,
                 ])

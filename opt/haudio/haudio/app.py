@@ -329,13 +329,22 @@ class Runtime:
         errors.extend(self.audio.device_errors(cards))
         if system.get("disk_free_gb") is not None and system["disk_free_gb"] < self.config.recording_min_free_gb:
             errors.append("DISK SPACE LOW")
+        headset_assigned = bool(self.store.get("assignments", {}).get("headset"))
         return {
             "name": "hAudio", "version": __version__, "online": True,
-            "pc1": {"connected": bool(nodes["pc1_in"]), "volume": current["pc1_volume"], "mute": current["pc1_mute"]},
-            "pc2": {"connected": bool(nodes["pc2_in"]), "volume": current["pc2_volume"], "mute": current["pc2_mute"]},
+            "pc1": {
+                "connected": bool(nodes["pc1_in"] or nodes["pc1_out"]), "volume": current["pc1_volume"],
+                "mute": current["pc1_mute"], "input": bool(nodes["pc1_in"]), "output": bool(nodes["pc1_out"]),
+            },
+            "pc2": {
+                "connected": bool(nodes["pc2_in"] or nodes["pc2_out"]), "volume": current["pc2_volume"],
+                "mute": current["pc2_mute"], "input": bool(nodes["pc2_in"]), "output": bool(nodes["pc2_out"]),
+            },
             "headset": {"connected": bool(nodes["headset"]), "volume": current["headset_volume"]},
             "microphone": {
-                "connected": bool(nodes["mic_in"]), "volume": current["mic_volume"],
+                "connected": bool(nodes["mic_in"]),
+                "available": bool(nodes["mic_in"]) or not (headset_assigned and nodes["headset"]),
+                "volume": current["mic_volume"],
                 "mute": current["mic_mute"], "route_pc1": current["mic_pc1"],
                 "route_pc2": current["mic_pc2"],
             },
@@ -532,8 +541,8 @@ def create_app(config: Config | None = None, runtime: Runtime | None = None) -> 
         if request.card_id and not any(card["id"] == request.card_id for card in cards):
             raise HTTPException(404, "audio card not found")
         selected = next((card for card in cards if card["id"] == request.card_id), None)
-        if selected and (not selected["has_input"] or not selected["has_output"]):
-            raise HTTPException(409, "the selected role requires a bidirectional audio interface")
+        if selected and not (selected["has_input"] or selected["has_output"]):
+            raise HTTPException(409, "the selected audio interface provides neither input nor output")
         assignments = runtime.store.get("assignments", {})
         duplicate_role = next(
             (role for role, card_id in assignments.items() if role != request.role and card_id == request.card_id and card_id),

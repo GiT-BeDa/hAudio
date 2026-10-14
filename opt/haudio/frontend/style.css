@@ -46,7 +46,7 @@ h2 { margin-bottom: 0; font-size: 19px; letter-spacing: .025em; }
 }
 
 .connection.online, .device-state.on { color: var(--green); }
-.connection.connecting { color: var(--yellow); }
+.connection.connecting, .device-state.unavailable { color: var(--yellow); }
 .connection.offline, .device-state.off { color: var(--red); }
 
 .error-banner, .system-errors {

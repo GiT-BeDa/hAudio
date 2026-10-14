@@ -71,10 +71,22 @@ function setConnection(connected, label = '') {
   element.textContent = connected ? '● ONLINE' : `● ${label || 'OFFLINE'}`;
 }
 
-function setDeviceState(name, connected) {
+function setDeviceState(name, connected, unavailableText = '') {
   const element = byId(`${name}-state`);
+  if (!connected && unavailableText) {
+    element.className = 'device-state unavailable';
+    element.textContent = `● ${unavailableText}`;
+    return;
+  }
   element.className = `device-state ${connected ? 'on' : 'off'}`;
   element.textContent = connected ? '● CONNECTED' : '● DISCONNECTED';
+}
+
+function computerStateText(device) {
+  if (!device?.connected) return '';
+  if (device.input === false) return 'OUTPUT ONLY';
+  if (device.output === false) return 'INPUT ONLY';
+  return '';
 }
 
 function setButton(button, active, activeText, inactiveText, activeClass = 'active') {
@@ -151,10 +163,16 @@ function applyStatus(status) {
   for (const name of ['pc1', 'pc2', 'headset']) {
     const device = status[name] || {};
     setDeviceState(name, Boolean(device.connected));
+    const partial = name === 'headset' ? '' : computerStateText(device);
+    if (partial) {
+      const element = byId(`${name}-state`);
+      element.textContent = `● ${partial}`;
+    }
     updateVolume(name, device.volume ?? 0);
   }
   const microphone = status.microphone || {};
-  setDeviceState('microphone', Boolean(microphone.connected));
+  // An output-only headset adapter is valid; its missing microphone is not an error.
+  setDeviceState('microphone', Boolean(microphone.connected), microphone.available === false ? 'NOT AVAILABLE' : '');
   updateVolume('mic', microphone.volume ?? 0);
   updateVolume('soundboard', status.soundboard?.volume ?? 100);
 
